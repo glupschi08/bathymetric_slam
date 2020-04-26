@@ -28,14 +28,16 @@ void SubmapsVisualizer::setVisualizer(SubmapsVec& submaps_set, int num){
     // The color we will be using
     float black = 0.0;  // Black
     float white = 1.0 - black;
-
+    float backgroundColor =black;
     // Create one/two vertically separated viewports
     if (num == 2){
         // Second viewport
         viewer_.createViewPort (0.0, 0.0, 0.5, 1.0, vp1_);
         viewer_.createViewPort (0.5, 0.0, 1.0, 1.0, vp2_);
         viewer_.addText ("Results", 10, 15, 16, white, white, white, "info_2", vp2_);
-        viewer_.setBackgroundColor (white, white, white, vp2_);
+        viewer_.setBackgroundColor (backgroundColor, backgroundColor, backgroundColor, vp2_);
+        //viewer_.setBackgroundColor (black, black, black, vp2_);
+
         viewer_.addCoordinateSystem(5.0, "reference_frame", vp2_);
     }
     else{
@@ -70,8 +72,8 @@ void SubmapsVisualizer::setVisualizer(SubmapsVec& submaps_set, int num){
     }
 
     // Set background color
-    viewer_.setBackgroundColor (white, white, white, vp1_);
-
+    //viewer_.setBackgroundColor (white, white, white, vp1_);
+    viewer_.setBackgroundColor (backgroundColor, backgroundColor, backgroundColor, vp1_);
     // Set camera position and orientation
     viewer_.setSize (1920/2, 1080/2);
     viewer_.addCoordinateSystem(5.0, "gt_reference_frame", vp1_);

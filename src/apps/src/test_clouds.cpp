@@ -38,6 +38,19 @@
 #include <pcl/common/common.h>
 #include <pcl/filters/uniform_sampling.h>
 
+//------for keypoint example
+#include <Eigen/Core>
+#include "pcl/point_types.h"
+#include "pcl/point_cloud.h"
+#include "pcl/io/pcd_io.h"
+#include "pcl/kdtree/kdtree_flann.h"
+#include "pcl/features/normal_3d.h"
+#include "pcl/features/pfh.h"
+#include "pcl/keypoints/sift_keypoint.h"
+#include <pcl/registration/transforms.h>
+#include <pcl/visualization/pcl_visualizer.h>
+//----------------
+
 #define SUBMAPS 0
 #define FULLMAP 1
 
@@ -118,20 +131,171 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis (SubmapsVec& submaps_set, int num)
     }
 
     viewer->setBackgroundColor (white, white, white, vp1_);
+    viewer->setBackgroundColor (0,0,0);
+    //viewer->setBackgroundColor (black, black, black, vp1_);
 
     return (viewer);
 }
+
+void detect_keypoints (pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, float min_scale, int nr_octaves, int nr_scales_per_octave, float min_contrast,
+        pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_out){
+
+
+    pcl::SIFTKeypoint<pcl::PointXYZRGB, pcl::PointWithScale> sift_detect;
+
+    // Use a FLANN-based KdTree to perform neighborhood searches
+    sift_detect.setSearchMethod (pcl::search::KdTree<pcl::PointXYZRGB>::Ptr (new pcl::search::KdTree<pcl::PointXYZRGB>));
+
+    // Set the detection parameters
+    sift_detect.setScales (min_scale, nr_octaves, nr_scales_per_octave);
+    sift_detect.setMinimumContrast (min_contrast);
+
+    // Set the input
+    sift_detect.setInputCloud (points);
+
+    // Detect the keypoints and store them in "keypoints_out"
+    sift_detect.compute (*keypoints_out);
+}
+
+
+void visualize_keypoints (const pcl::PointCloud<pcl::PointXYZRGB>::Ptr points, const pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints){
+    // Add the points to the vizualizer
+    pcl::visualization::PCLVisualizer viz;
+    viz.addPointCloud (points, "points");
+
+    // Draw each keypoint as a sphere
+    for (size_t i = 0; i < keypoints->size (); ++i)
+    {
+        // Get the point data
+        const pcl::PointWithScale & p = keypoints->points[i];
+
+        // Pick the radius of the sphere *
+        float r = 2 * p.scale;
+        // * Note: the scale is given as the standard deviation of a Gaussian blur, so a
+        //   radius of 2*p.scale is a good illustration of the extent of the keypoint
+
+        // Generate a unique string for each sphere
+        std::stringstream ss ("keypoint");
+        ss << i;
+
+        // Add a sphere at the keypoint
+        viz.addSphere (p, 2*p.scale, 1.0, 0.0, 0.0, ss.str ());
+    }
+
+    // Give control over to the visualizer
+    viz.spin ();
+}
+
+pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set, int num){
+    int vp1_;
+
+    pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
+
+    float black = 0.0;  // Black
+    float white = 1.0 - black;
+    viewer->createViewPort (0.0, 0.0, 1.0, 1.0, vp1_);
+
+    unsigned int i = 0;
+    PointCloudRGB::Ptr submap_ptr (new PointCloudRGB);
+    for(SubmapObj& submap: submaps_set){
+        // Find max and min depth in map
+        PointT min, max;
+        pcl::getMinMax3D(submap.submap_pcl_, min, max);
+        std::cout << "Max " << max.getArray3fMap().transpose() << std::endl;
+        std::cout << "Min " << min.getArray3fMap().transpose() << std::endl;
+        // Normalize and give colors based on z
+        for(PointT& pointt: submap.submap_pcl_.points){
+            pcl::PointXYZRGB pointrgb;
+            pointrgb.x = pointt.x;
+            pointrgb.y = pointt.y;
+            pointrgb.z = pointt.z;
+
+            std::tuple<uint8_t, uint8_t, uint8_t> colors_rgb;
+            colors_rgb = jet((pointt.z - min.z)/(max.z - min.z));
+            std::uint32_t rgb = (static_cast<std::uint32_t>(std::get<0>(colors_rgb)) << 16 |
+                                 static_cast<std::uint32_t>(std::get<1>(colors_rgb)) << 8 |
+                                 static_cast<std::uint32_t>(std::get<2>(colors_rgb)));
+            pointrgb.rgb = *reinterpret_cast<float*>(&rgb);
+            submap_ptr->points.push_back(pointrgb);
+        }
+
+
+        //--------------------------------------------
+        //this part is from the PCL tutorial berkley -> implementation of an FAST keypoint detection
+
+        // Create some new point clouds to hold our data
+        //pcl::PointCloud<pcl::PointXYZRGB>::Ptr points (new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints (new pcl::PointCloud<pcl::PointWithScale>);
+
+        // Compute keypoints
+        const float min_scale = 0.01;
+        const int nr_octaves = 3;
+        const int nr_octaves_per_scale = 3;
+        const float min_contrast = 10.0;
+        //detect_keypoints (points, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast, keypoints);
+
+        // Visualize the point cloud and its keypoints
+        //visualize_keypoints (points, keypoints);
+        //---------------------------------
+
+
+        std::cout << submap_ptr->points.size() << std::endl;
+        pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb_h(submap_ptr);
+        viewer->addPointCloud(submap_ptr, rgb_h, "gt_cloud_" + std::to_string(i), vp1_);
+        viewer->addCoordinateSystem(3.0, submap.submap_tf_, "gt_cloud_" + std::to_string(i), vp1_);
+
+
+        //--------------------------------------------
+        detect_keypoints (submap_ptr, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast, keypoints);
+        // Visualize the point cloud and its keypoints
+        //visualize_keypoints (points, keypoints);
+        // Draw each keypoint as a sphere
+        for (size_t i = 0; i < keypoints->size (); ++i)
+        {
+            // Get the point data
+            const pcl::PointWithScale & p = keypoints->points[i];
+
+            // Pick the radius of the sphere *
+            float r = 2 * p.scale;
+            // * Note: the scale is given as the standard deviation of a Gaussian blur, so a
+            //   radius of 2*p.scale is a good illustration of the extent of the keypoint
+
+            // Generate a unique string for each sphere
+            std::stringstream ss ("keypoint");
+            ss << i;
+
+            // Add a sphere at the keypoint
+            //viewer->addSphere (p, 2*p.scale, 1.0, 0.0, 0.0, ss.str ());
+            viewer->addSphere (p, 8.0, 1.0, 0.0, 0.0, ss.str ());
+        }
+        //--------------------------------------------
+        i++;
+    }
+
+    //viewer->setBackgroundColor (white, white, white, vp1_);
+    //viewer->setBackgroundColor (0,0,0);
+    viewer->setBackgroundColor (black, black, black, vp1_);
+
+    return (viewer);
+}
+
 
 int main(int argc, char** argv){
 
     // Inputs
     std::string folder_str, path_str, output_str, simulation;
+    int submap_num=1;
+    float test_float=0;
+    bool do_keypoints=false;
     cxxopts::Options options("MyProgram", "One line description of MyProgram");
     options.add_options()
         ("help", "Print help")
         ("simulation", "Simulation data from Gazebo", cxxopts::value(simulation))
         ("bathy_survey", "Input MBES pings in cereal file if simulation = no. If in simulation"
-                          "input path to map_small folder", cxxopts::value(path_str));
+                          "input path to map_small folder", cxxopts::value(path_str))
+        ("submap_num","Number of submaps fromed from the input data", cxxopts::value<int>(submap_num))
+        ("test_float", "An test float", cxxopts::value<float>(test_float))
+        ("k,do_keypoints", "scan for keypoints", cxxopts::value<bool>(do_keypoints));
 
     auto result = options.parse(argc, argv);
     if (result.count("help")) {
@@ -143,6 +307,20 @@ int main(int argc, char** argv){
     }
     boost::filesystem::path output_path(output_str);
     string outFilename = "graph_corrupted.g2o";   // G2O output file
+
+
+    ///add the option to split the data flexible into submaps
+    if (result.count("submap_num")){
+        if(submap_num<1){
+            submap_num=1;
+        }
+        std::cout << "submap_num = " << result["submap_num"].as<int>() << std::endl;
+    }
+    if (result.count("test_float")){
+
+        std::cout << "test_float = " << result["test_float"].as<float>() << std::endl;
+    }
+
 
     // Parse submaps from cereal file
     boost::filesystem::path submaps_path(path_str);
@@ -161,7 +339,10 @@ int main(int argc, char** argv){
             /// Number of pings per submap. if = traj_pings.size()-1
             /// the whole survey is treated as one map.
             /// This is a naive submap construction method. You'll come up with something better :)
-            int submap_size = traj_pings.size()-1;
+
+            //int submap_size = traj_pings.size()-1;        ///original
+            int submap_size = (traj_pings.size())/(submap_num+1);
+
 
             /// Construct submaps aggregating pings. The pings are given wrt the map frame, not the AUV frame.
             /// Keep it in mind although it doesn't make a diff for you for now
@@ -190,7 +371,42 @@ int main(int argc, char** argv){
     // Visualization
 #if FULLMAP == 1
     pcl::visualization::PCLVisualizer::Ptr viewer;
-    viewer = rgbVis(submaps_gt, 1);
+    //viewer = rgbVis(submaps_gt, 1);
+    if(do_keypoints){
+        //if(do_keypoints){
+            std::cout << "do keypoints is on";
+            viewer = rgbVis_keypoints(submaps_gt, 1);
+    }else{
+        viewer = rgbVis(submaps_gt, 1);
+    }
+
+
+    //----------------------test area for viso
+    //viewer_.addArrow(PointT(0,0,0, PointT(to_ps[0],to_ps[1],to_ps[2]),dr_color[0], dr_color[1], dr_color[2], false, "gt_dr_edge_" + std::to_string(j), vp1_);
+    pcl::ModelCoefficients coeffs;
+    coeffs.values.push_back(0.3);
+    coeffs.values.push_back(0.3);
+    coeffs.values.push_back(0.0);
+    coeffs.values.push_back(0.0);
+    coeffs.values.push_back(1.0);
+    coeffs.values.push_back(0.0);
+    coeffs.values.push_back(5.0);
+    viewer->addCone (coeffs, "cone");
+    std::cout << "cone test";
+    coeffs.values.clear ();
+    coeffs.values.push_back(-10.);                 //x offset
+    coeffs.values.push_back(0.0);                   //Y offset
+    coeffs.values.push_back(4.0);                  //z offset
+    coeffs.values.push_back(0.0);                   //change angle and size
+    coeffs.values.push_back(25.0);
+    coeffs.values.push_back(2.0);
+    coeffs.values.push_back(10.0);
+    viewer->addCone (coeffs, "cone2");
+    std::cout << "cone test";
+    //viewer->addSphere ((), 0.2, 0.5, 0.5, 0.0, "sphere");
+    //-----------------------------end of test area
+
+
     while(!viewer->wasStopped ()){
         viewer->spinOnce ();
     }
@@ -201,11 +417,14 @@ int main(int argc, char** argv){
     PCLVisualizer viewer ("Submaps viewer");
     SubmapsVisualizer* visualizer = new SubmapsVisualizer(viewer);
     visualizer->setVisualizer(submaps_gt, 1);
+
     while(!viewer.wasStopped ()){
         viewer.spinOnce ();
     }
     viewer.resetStoppedFlag();
 #endif
+
+
 
     return 0;
 }
