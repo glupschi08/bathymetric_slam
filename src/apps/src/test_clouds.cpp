@@ -92,6 +92,31 @@ std::tuple<uint8_t, uint8_t, uint8_t> jet(double x)
     return std::make_tuple(uint8_t(255.*r), uint8_t(255.*g), uint8_t(255.*b));
 }
 
+
+//does the prescalling for jet -> maps z to [0-1]:[1-0] in the area between 0 and threshold
+//e.g. points along a linear line in z direction would get be: blue, green, yellow, red, yellow, green, blue, green,...
+std::tuple<uint8_t, uint8_t, uint8_t> stacked_jet(double z, double threshold){
+    pcl::PointXYZRGB pointrgb;
+    std::tuple<uint8_t, uint8_t, uint8_t> colors_rgb;
+    double r, g, b, val;
+    if(z<=0){
+        while(z<0){
+            z+=threshold;
+        }
+    }else{
+        while(z>threshold){
+            z-=threshold;
+        }
+    }
+    if(z>threshold/2){
+        z-=(threshold/2);
+        val=-((z/(threshold/2))-1);
+    }else{
+        val=z/(threshold/2);
+    }
+    return jet(val);
+}
+
 pcl::visualization::PCLVisualizer::Ptr rgbVis (SubmapsVec& submaps_set, int num){
     int vp1_;
 
@@ -126,6 +151,7 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis (SubmapsVec& submaps_set, int num)
         std::cout << submap_ptr->points.size() << std::endl;
         pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb_h(submap_ptr);
         viewer->addPointCloud(submap_ptr, rgb_h, "gt_cloud_" + std::to_string(i), vp1_);
+        viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "gt_cloud_" + std::to_string(i));
         viewer->addCoordinateSystem(3.0, submap.submap_tf_, "gt_cloud_" + std::to_string(i), vp1_);
         i++;
     }
@@ -156,6 +182,8 @@ void detect_keypoints (pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, float min
     // Detect the keypoints and store them in "keypoints_out"
     sift_detect.compute (*keypoints_out);
 }
+
+
 
 
 void visualize_keypoints (const pcl::PointCloud<pcl::PointXYZRGB>::Ptr points, const pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints){
@@ -284,7 +312,7 @@ int main(int argc, char** argv){
 
     // Inputs
     std::string folder_str, path_str, output_str, simulation;
-    int submap_num=1;
+    int submap_num=5;
     float test_float=0;
     bool do_keypoints=false;
     cxxopts::Options options("MyProgram", "One line description of MyProgram");
@@ -383,6 +411,7 @@ int main(int argc, char** argv){
 
     //----------------------test area for viso
     //viewer_.addArrow(PointT(0,0,0, PointT(to_ps[0],to_ps[1],to_ps[2]),dr_color[0], dr_color[1], dr_color[2], false, "gt_dr_edge_" + std::to_string(j), vp1_);
+    /*
     pcl::ModelCoefficients coeffs;
     coeffs.values.push_back(0.3);
     coeffs.values.push_back(0.3);
@@ -403,6 +432,7 @@ int main(int argc, char** argv){
     coeffs.values.push_back(10.0);
     viewer->addCone (coeffs, "cone2");
     std::cout << "cone test";
+     */
     //viewer->addSphere ((), 0.2, 0.5, 0.5, 0.0, "sphere");
     //-----------------------------end of test area
 
