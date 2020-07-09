@@ -1,0 +1,2 @@
+./test_clouds --bathy_survey /home/florian/Documents/Post_Deployment_PROCESSED/mbes_pings.cereal -j 1 -i 13.5 --t_d3=1. --t_d2=3.0 --t_d1=2.0 --t_d4=1. -k 1.0 --min_scale=0.7 --min_contrast=00.8 --nr_octaves=5 --nr_scales_per_octave=7 -f true
+
