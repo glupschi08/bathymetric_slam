@@ -49,10 +49,37 @@
 #include "pcl/keypoints/sift_keypoint.h"
 #include <pcl/registration/transforms.h>
 #include <pcl/visualization/pcl_visualizer.h>
-//----------------
+//-----update
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/visualization/point_cloud_color_handlers.h>
+#include <pcl/features/pfh.h>
+#include <pcl/features/pfhrgb.h>
+#include <pcl/visualization/point_cloud_handlers.h>
+#include <pcl/visualization/point_cloud_geometry_handlers.h>
+#include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/radius_outlier_removal.h>
+#include <fstream> //write to file
 
 #define SUBMAPS 0
 #define FULLMAP 1
+
+// Hyper parameters
+#define LEAF_SIZE .1    //for the sampling of the cloud -> 0.1 no filtering applied
+
+//for computing the normals
+#define normal_radius 5//1.2 //0.25  -> very good results with 0.25, 5, 10 and feature radius10.25
+
+//  for compute_PFHRGB_features
+// IMPORTANT: the radius used here has to be larger than the radius used to estimate the surface normals!!!
+#define feature_radius 5.25//3.25  //0.25
+
+// Parameters for sift computation
+/*
+#define min_scale 0.2
+#define nr_octaves 4
+#define nr_scales_per_octave 5
+#define min_contrast 0.25
+ */
 
 using namespace Eigen;
 using namespace std;
@@ -98,7 +125,7 @@ std::tuple<uint8_t, uint8_t, uint8_t> jet(double x)
 std::tuple<uint8_t, uint8_t, uint8_t> stacked_jet(double z, double threshold){
     pcl::PointXYZRGB pointrgb;
     std::tuple<uint8_t, uint8_t, uint8_t> colors_rgb;
-    double r, g, b, val;
+    double val;
     if(z<=0){
         while(z<0){
             z+=threshold;
@@ -117,7 +144,7 @@ std::tuple<uint8_t, uint8_t, uint8_t> stacked_jet(double z, double threshold){
     return jet(val);
 }
 
-pcl::visualization::PCLVisualizer::Ptr rgbVis (SubmapsVec& submaps_set, int num){
+pcl::visualization::PCLVisualizer::Ptr rgbVis (SubmapsVec& submaps_set, int num, bool jet_flag, double jet_stacking_threshold){
     int vp1_;
 
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
@@ -141,7 +168,11 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis (SubmapsVec& submaps_set, int num)
             pointrgb.y = pointt.y;
             pointrgb.z = pointt.z;
             std::tuple<uint8_t, uint8_t, uint8_t> colors_rgb;
-            colors_rgb = jet((pointt.z - min.z)/(max.z - min.z));
+            if(jet_flag==true) {
+                colors_rgb = stacked_jet(pointt.z, jet_stacking_threshold);
+            }else {
+                colors_rgb = jet((pointt.z - min.z) / (max.z - min.z));
+            }
             std::uint32_t rgb = (static_cast<std::uint32_t>(std::get<0>(colors_rgb)) << 16 |
                                  static_cast<std::uint32_t>(std::get<1>(colors_rgb)) << 8 |
                                  static_cast<std::uint32_t>(std::get<2>(colors_rgb)));
@@ -156,13 +187,59 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis (SubmapsVec& submaps_set, int num)
         i++;
     }
 
-    viewer->setBackgroundColor (white, white, white, vp1_);
-    viewer->setBackgroundColor (0,0,0);
-    //viewer->setBackgroundColor (black, black, black, vp1_);
+    //viewer->setBackgroundColor (white, white, white, vp1_);
+    //viewer->setBackgroundColor (0,0,0);
+    viewer->setBackgroundColor (black, black, black, vp1_);
 
     return (viewer);
 }
 
+
+void compute_PFHRGB_features(pcl::PointCloud <pcl::PointXYZRGB>::Ptr &cloud,
+                             pcl::PointCloud <pcl::Normal>::Ptr &normals,
+                             pcl::PointCloud <pcl::PointWithScale>::Ptr &keypoints,
+                             pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr &descriptors_out) {
+
+
+    // copy only XYZ data of keypoints for use in estimating features
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr keypoints_xyzrgb(new pcl::PointCloud <pcl::PointXYZRGB>);
+    pcl::copyPointCloud(*keypoints, *keypoints_xyzrgb);
+
+    // Create the PFH estimation class, and pass the input dataset+normals to it
+    pcl::PFHRGBEstimation<pcl::PointXYZRGB, pcl::Normal, pcl::PFHRGBSignature250> pfhrgbEstimation;
+
+    pfhrgbEstimation.setInputCloud(keypoints_xyzrgb);
+    pfhrgbEstimation.setSearchSurface(cloud); // use all points for analyzing local cloud structure
+    pfhrgbEstimation.setInputNormals(normals);
+    // alternatively, if cloud is of tpe PointNormal, do pfh.setInputNormals (cloud);
+
+    // Create an empty kdtree representation, and pass it to the PFH estimation object.
+    // Its content will be filled inside the object, based on the given input dataset (as no other search surface is given).
+    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>());
+    pfhrgbEstimation.setSearchMethod(tree);
+    //pfhrgbEstimation.setKSearch(100);
+
+    // Use all neighbors in a sphere of radius radius
+    // IMPORTANT: the radius used here has to be larger than the radius used to estimate the surface normals!!!
+    pfhrgbEstimation.setRadiusSearch(feature_radius);
+
+    // Compute the features
+    pfhrgbEstimation.compute(*descriptors_out);
+}
+
+void compute_normals(pcl::PointCloud <pcl::PointXYZRGB>::Ptr &points,
+                     pcl::PointCloud <pcl::Normal>::Ptr &normals_out) {
+
+    pcl::NormalEstimation <pcl::PointXYZRGB, pcl::Normal> norm_est;
+    // Use a FLANN-based KdTree to perform neighbourhood searches
+    norm_est.setSearchMethod(pcl::search::KdTree <pcl::PointXYZRGB>::Ptr(new pcl::search::KdTree <pcl::PointXYZRGB>));
+
+    norm_est.setRadiusSearch(normal_radius);
+    norm_est.setInputCloud(points);
+    norm_est.compute(*normals_out);
+}
+
+/*
 void detect_keypoints (pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, float min_scale, int nr_octaves, int nr_scales_per_octave, float min_contrast,
         pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_out){
 
@@ -182,6 +259,33 @@ void detect_keypoints (pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, float min
     // Detect the keypoints and store them in "keypoints_out"
     sift_detect.compute (*keypoints_out);
 }
+*/
+void detect_keypoints(pcl::PointCloud <pcl::PointXYZRGB>::Ptr &points,
+                      pcl::PointCloud <pcl::PointWithScale>::Ptr &keypoints_out,
+                      float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast) {
+
+
+    std::cout << "min_scale " << min_scale << std::endl;
+    std::cout << "nr_octaves " << nr_octaves << std::endl;
+    std::cout << "nr_scales_per_octave " << nr_scales_per_octave << std::endl;
+    std::cout << "min_contrast " << min_contrast << std::endl;
+
+    pcl::SIFTKeypoint <pcl::PointXYZRGB, pcl::PointWithScale> sift_detect;
+
+    // Use a FLANN-based KdTree to perform neighbourhood searches
+    pcl::search::KdTree <pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree <pcl::PointXYZRGB>);
+    sift_detect.setSearchMethod(tree);
+
+    // Set the detection parameters
+    sift_detect.setScales(min_scale, nr_octaves, nr_scales_per_octave);
+    sift_detect.setMinimumContrast(min_contrast);
+
+    // Set the input
+    sift_detect.setInputCloud(points);
+
+    // Detect the keypoints and store them in "keypoints.out"
+    sift_detect.compute(*keypoints_out);
+}
 
 
 
@@ -197,11 +301,6 @@ void visualize_keypoints (const pcl::PointCloud<pcl::PointXYZRGB>::Ptr points, c
         // Get the point data
         const pcl::PointWithScale & p = keypoints->points[i];
 
-        // Pick the radius of the sphere *
-        float r = 2 * p.scale;
-        // * Note: the scale is given as the standard deviation of a Gaussian blur, so a
-        //   radius of 2*p.scale is a good illustration of the extent of the keypoint
-
         // Generate a unique string for each sphere
         std::stringstream ss ("keypoint");
         ss << i;
@@ -214,13 +313,67 @@ void visualize_keypoints (const pcl::PointCloud<pcl::PointXYZRGB>::Ptr points, c
     viz.spin ();
 }
 
-pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set, int num){
+
+/*
+void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src,
+                                    pcl::PointCloud<pcl::PointXYZRGB>::Ptr &tgt,
+                                    Eigen::Matrix4f &transform,
+                                    pcl::PointCloud<pcl::PointXYZ>::Ptr & keypoints_src_visualize_temp,
+                                    pcl::PointCloud<pcl::PointXYZ>::Ptr & keypoints_tgt_visualize_temp,
+                                    pcl::Correspondences & good_correspondences,
+                                    std::string keypoints_meth) {*/
+void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointCloud<pcl::PointXYZ>::Ptr & keypoints_src_visualize_temp,float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast){
+
+    // ESTIMATING KEY POINTS
+    pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints_src(new pcl::PointCloud<pcl::PointWithScale>);
+
+    cout << "chosen Method is SWIFT" << endl;
+    //detect_keypoints(src, keypoints_src);
+    detect_keypoints(src, keypoints_src,min_scale,nr_octaves,nr_scales_per_octave,min_contrast);
+    cout << "No of SIFT points in the src are " << keypoints_src->points.size() << endl;
+/*
+    // ESTIMATING PFH FEATURE DESCRIPTORS AT KEYPOINTS AFTER COMPUTING NORMALS
+    pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
+    compute_normals(src, src_normals);
+
+    // PFHRGB Estimation
+    pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb(new pcl::PointCloud<pcl::PFHRGBSignature250>);
+
+    compute_PFHRGB_features(src, src_normals, keypoints_src, fpfhs_src_rgb);
+    cout << "End of compute_FPFH_RGB_features! " << endl;
+*/
+    // Copying the pointwithscale to pointxyz so as visualize the cloud
+    pcl::copyPointCloud(*keypoints_src, *keypoints_src_visualize_temp);
+
+    /*
+    // Find correspondences between keypoints in FPFH space
+    pcl::CorrespondencesPtr all_correspondences_RGB(new pcl::Correspondences);
+    findCorrespondences_PFHRGB(fpfhs_src_rgb, fpfhs_tgt_rgb, *all_correspondences_RGB);
+    cout << "All correspondences size: " << all_correspondences_RGB->size() << endl;
+
+    rejectBadCorrespondences(all_correspondences_RGB, keypoints_src, keypoints_tgt, good_correspondences);
+    //rejectBadCorrespondences(all_correspondences, keypoints_src, keypoints_tgt, good_correspondences);
+
+    cout << "End of rejectBadCorrespondences! " << endl;
+    cout << "Good correspondences size: " << good_correspondences.size() << endl;
+
+    pcl::registration::TransformationEstimationSVD<pcl::PointXYZ, pcl::PointXYZ> trans_est;
+    trans_est.estimateRigidTransformation(*keypoints_src_visualize_temp, *keypoints_tgt_visualize_temp, good_correspondences, transform);
+    */
+    if(1 ) {
+        pcl::PCDWriter writer;
+        pcl::io::savePCDFile("keypoints__visualize_temp.pcd", *keypoints_src_visualize_temp, true);
+    }
+
+    }
+
+pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set, int num, bool jet_flag, double jet_stacking_threshold, float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast){
     int vp1_;
 
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 
-    float black = 0.0;  // Black
-    float white = 1.0 - black;
+    //float black = 0.0;  // Black
+    //float white = 1.0 - black;
     viewer->createViewPort (0.0, 0.0, 1.0, 1.0, vp1_);
 
     unsigned int i = 0;
@@ -239,40 +392,41 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set
             pointrgb.z = pointt.z;
 
             std::tuple<uint8_t, uint8_t, uint8_t> colors_rgb;
-            colors_rgb = jet((pointt.z - min.z)/(max.z - min.z));
+            if(jet_flag==true) {
+                colors_rgb = stacked_jet(pointt.z, jet_stacking_threshold);
+            }else{
+                colors_rgb = jet((pointt.z - min.z)/(max.z - min.z));
+            }
+
             std::uint32_t rgb = (static_cast<std::uint32_t>(std::get<0>(colors_rgb)) << 16 |
                                  static_cast<std::uint32_t>(std::get<1>(colors_rgb)) << 8 |
                                  static_cast<std::uint32_t>(std::get<2>(colors_rgb)));
             pointrgb.rgb = *reinterpret_cast<float*>(&rgb);
             submap_ptr->points.push_back(pointrgb);
         }
-
-
         //--------------------------------------------
-        //this part is from the PCL tutorial berkley -> implementation of an FAST keypoint detection
+        //parts from the following code can be found in the PCL tutorial berkley -> implementation of an FAST keypoint detection
 
         // Create some new point clouds to hold our data
-        //pcl::PointCloud<pcl::PointXYZRGB>::Ptr points (new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints (new pcl::PointCloud<pcl::PointWithScale>);
 
-        // Compute keypoints
-        const float min_scale = 0.01;
-        const int nr_octaves = 3;
-        const int nr_octaves_per_scale = 3;
-        const float min_contrast = 10.0;
-        //detect_keypoints (points, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast, keypoints);
-
-        // Visualize the point cloud and its keypoints
-        //visualize_keypoints (points, keypoints);
-        //---------------------------------
-
-
+        // Visualize the point cloud and its coordinate system
         std::cout << submap_ptr->points.size() << std::endl;
         pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb_h(submap_ptr);
         viewer->addPointCloud(submap_ptr, rgb_h, "gt_cloud_" + std::to_string(i), vp1_);
         viewer->addCoordinateSystem(3.0, submap.submap_tf_, "gt_cloud_" + std::to_string(i), vp1_);
 
+        //keypoint detection
+        //pcl::compute_featuresPointCloud<pcl::PointXYZ>::Ptr keypoints_src_visualize_temp(new pcl::PointCloud<pcl::PointXYZ>);
+        pcl::PointCloud<pcl::PointXYZ>::Ptr keypoints_src_visualize_temp(new pcl::PointCloud<pcl::PointXYZ>);
 
+        compute_features( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast);
+        std::cout << "Num of keypoints: " << keypoints_src_visualize_temp->size() << std::endl;
+        viewer->addPointCloud<pcl::PointXYZ>(keypoints_src_visualize_temp, "keypoints_src_corresp_viewer"+ std::to_string(i));
+        viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "keypoints_src_corresp_viewer"+ std::to_string(i));
+
+
+        /*
         //--------------------------------------------
         detect_keypoints (submap_ptr, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast, keypoints);
         // Visualize the point cloud and its keypoints
@@ -293,36 +447,54 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set
             ss << i;
 
             // Add a sphere at the keypoint
-            //viewer->addSphere (p, 2*p.scale, 1.0, 0.0, 0.0, ss.str ());
             viewer->addSphere (p, 8.0, 1.0, 0.0, 0.0, ss.str ());
         }
-        //--------------------------------------------
+        */
         i++;
     }
 
-    //viewer->setBackgroundColor (white, white, white, vp1_);
-    //viewer->setBackgroundColor (0,0,0);
-    viewer->setBackgroundColor (black, black, black, vp1_);
 
+    viewer->setBackgroundColor (0, 0, 0, vp1_);
     return (viewer);
 }
+
+
+
+
 
 
 int main(int argc, char** argv){
 
     // Inputs
     std::string folder_str, path_str, output_str, simulation;
-    int submap_num=5;
+    int submap_num=1;
     float test_float=0;
-    bool do_keypoints=false;
+    double test_double1=0, test_double2=0, test_double3=0,test_double4=0;
+    float min_scale=0.3, min_contrast=0.25;
+    int nr_octaves=4, nr_scales_per_octave=5;
+    bool do_keypoints=false, jet_flag=false, filter_flag=true;
+    double jet_stacking_threshold;
     cxxopts::Options options("MyProgram", "One line description of MyProgram");
     options.add_options()
         ("help", "Print help")
         ("simulation", "Simulation data from Gazebo", cxxopts::value(simulation))
         ("bathy_survey", "Input MBES pings in cereal file if simulation = no. If in simulation"
                           "input path to map_small folder", cxxopts::value(path_str))
-        ("submap_num","Number of submaps fromed from the input data", cxxopts::value<int>(submap_num))
+        ("s,submap_num","Number of submaps fromed from the input data", cxxopts::value<int>(submap_num))
         ("test_float", "An test float", cxxopts::value<float>(test_float))
+        ("t_d1", "An test double", cxxopts::value<double>(test_double1))
+        ("t_d2", "An test double", cxxopts::value<double>(test_double2))
+        ("t_d3", "An test double", cxxopts::value<double>(test_double3))
+        ("t_d4", "An test double", cxxopts::value<double>(test_double4))
+
+        ("min_scale", "An test double", cxxopts::value<float>(min_scale))
+        ("nr_octaves", "An test double", cxxopts::value<int>(nr_octaves))
+        ("nr_scales_per_octave", "An test double", cxxopts::value<int>(nr_scales_per_octave))
+        ("min_contrast", "An test double", cxxopts::value<float>(min_contrast))
+
+        ("j,jet", "apply jet function to color", cxxopts::value<bool>(jet_flag))
+        ("f,filter", "set to false -> no filtering", cxxopts::value<bool>(filter_flag))
+        ("i,staked_height", "the height for the stacked color", cxxopts::value<double>(jet_stacking_threshold)->default_value("30.0"))
         ("k,do_keypoints", "scan for keypoints", cxxopts::value<bool>(do_keypoints));
 
     auto result = options.parse(argc, argv);
@@ -332,6 +504,9 @@ int main(int argc, char** argv){
     }
     if(output_str.empty()){
         output_str = "output_cereal.cereal";
+    }
+    if (result.count("i") ){
+        std::cout << "Stacked height threshold: " << jet_stacking_threshold << std::endl;
     }
     boost::filesystem::path output_path(output_str);
     string outFilename = "graph_corrupted.g2o";   // G2O output file
@@ -380,11 +555,38 @@ int main(int argc, char** argv){
             PointCloudT::Ptr cloud_ptr (new PointCloudT);
             pcl::UniformSampling<PointT> us_filter;
             us_filter.setInputCloud (cloud_ptr);
-            us_filter.setRadiusSearch(1);   // See radius of filtering (see Uniform sampling on PCL)
+            std::cerr << "UniformSamplingRadius: " <<test_double4<< std::endl;
+            us_filter.setRadiusSearch(test_double4); //1  // See radius of filtering (see Uniform sampling on PCL)
+
+            // Create the filtering object for StatisticalOutlierRemoval
+            pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+            sor.setMeanK (50);//50
+            std::cerr << "setStddevMulThresh: " <<test_double3<< std::endl;
+            sor.setStddevMulThresh (test_double3);//1.0
+
+            // Create the filtering object for RadiusOutlierRemoval
+            pcl::RadiusOutlierRemoval<pcl::PointXYZ> outrem;
+            std::cerr << "setRadiusSearch: " <<test_double1<< std::endl;
+            std::cerr << "setMinNeighborsInRadius: " <<test_double2<< std::endl;
+            outrem.setRadiusSearch(test_double1);//0.8
+            outrem.setMinNeighborsInRadius (test_double2);//2
+
+
             for(SubmapObj& submap_i: submaps_gt){
                 *cloud_ptr = submap_i.submap_pcl_;
+                std::cerr << "Cloud before filtering: " <<cloud_ptr->size()<< std::endl;
                 us_filter.setInputCloud(cloud_ptr);
                 us_filter.filter(*cloud_ptr);
+                std::cerr << "Cloud after Uniform sampling: " <<cloud_ptr->size()<< std::endl;
+
+                if(filter_flag==true){
+                    sor.setInputCloud (cloud_ptr);
+                    sor.filter (*cloud_ptr);
+                    std::cerr << "Cloud after StatisticalOutlierRemoval: " <<cloud_ptr->size()<< std::endl;
+                    outrem.setInputCloud(cloud_ptr);
+                    outrem.filter (*cloud_ptr);
+                    std::cerr << "Cloud after RadiusOutlierRemoval: " <<cloud_ptr->size()<< std::endl;
+                }
                 submap_i.submap_pcl_ = *cloud_ptr;
             }
         }
@@ -403,39 +605,10 @@ int main(int argc, char** argv){
     if(do_keypoints){
         //if(do_keypoints){
             std::cout << "do keypoints is on";
-            viewer = rgbVis_keypoints(submaps_gt, 1);
+            viewer = rgbVis_keypoints(submaps_gt, 1,jet_flag, jet_stacking_threshold, min_scale,nr_octaves, nr_scales_per_octave,min_contrast);
     }else{
-        viewer = rgbVis(submaps_gt, 1);
+        viewer = rgbVis(submaps_gt, 1, jet_flag, jet_stacking_threshold);
     }
-
-
-    //----------------------test area for viso
-    //viewer_.addArrow(PointT(0,0,0, PointT(to_ps[0],to_ps[1],to_ps[2]),dr_color[0], dr_color[1], dr_color[2], false, "gt_dr_edge_" + std::to_string(j), vp1_);
-    /*
-    pcl::ModelCoefficients coeffs;
-    coeffs.values.push_back(0.3);
-    coeffs.values.push_back(0.3);
-    coeffs.values.push_back(0.0);
-    coeffs.values.push_back(0.0);
-    coeffs.values.push_back(1.0);
-    coeffs.values.push_back(0.0);
-    coeffs.values.push_back(5.0);
-    viewer->addCone (coeffs, "cone");
-    std::cout << "cone test";
-    coeffs.values.clear ();
-    coeffs.values.push_back(-10.);                 //x offset
-    coeffs.values.push_back(0.0);                   //Y offset
-    coeffs.values.push_back(4.0);                  //z offset
-    coeffs.values.push_back(0.0);                   //change angle and size
-    coeffs.values.push_back(25.0);
-    coeffs.values.push_back(2.0);
-    coeffs.values.push_back(10.0);
-    viewer->addCone (coeffs, "cone2");
-    std::cout << "cone test";
-     */
-    //viewer->addSphere ((), 0.2, 0.5, 0.5, 0.0, "sphere");
-    //-----------------------------end of test area
-
 
     while(!viewer->wasStopped ()){
         viewer->spinOnce ();
