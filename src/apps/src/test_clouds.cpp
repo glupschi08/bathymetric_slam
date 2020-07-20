@@ -413,9 +413,84 @@ void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointClo
         visualize_clusters(Keypoint_Cluster_Queue, src);
         //visualize_clusters(Keypoint_Cluster_Queue, keypoints_xyzrgb);
     }
+}
 
 
+
+queue<KeypointCluster> get_cluster_descriptors(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointCloud<pcl::PointXYZ>::Ptr & keypoints_src_visualize_temp,float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast, int show, int octree_resolution, int minPtsAux, int minPts, float eps){
+
+    // ESTIMATING KEY POINTS
+    pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints_src(new pcl::PointCloud<pcl::PointWithScale>);
+    cout << "chosen Method is SWIFT" << endl;
+    //detect_keypoints(src, keypoints_src);
+    detect_keypoints(src, keypoints_src,min_scale,nr_octaves,nr_scales_per_octave,min_contrast);
+    cout << "No of SIFT points in the src are " << keypoints_src->points.size() << endl;
+    cout << "test 1"  << endl;
+
+
+    // Copying the pointwithscale to pointxyz so as visualize the cloud
+    pcl::copyPointCloud(*keypoints_src, *keypoints_src_visualize_temp);
+
+    if(0 ) {
+        pcl::PCDWriter writer;
+        pcl::io::savePCDFile("keypoints__visualize_temp.pcd", *keypoints_src_visualize_temp, true);
+        pcl::io::savePCDFile("src_cloud.pcd", *src, true);
     }
+
+    //-------------------------------------------------------------------------------------------
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr keypoints_xyzrgb(new pcl::PointCloud <pcl::PointXYZRGB>);
+    pcl::copyPointCloud(*keypoints_src, *keypoints_xyzrgb);
+
+
+    //new implementaion part
+    //do some filtering on the cloud to remove outliers
+    if(1){
+        // Create the filtering object for RadiusOutlierRemoval
+        pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> outrem;
+        //std::cerr << "setRadiusSearch: " <<test_double1<< std::endl;
+        //std::cerr << "setMinNeighborsInRadius: " <<test_double2<< std::endl;
+        outrem.setRadiusSearch(5.);//good 5 and r = 3//0.8
+        outrem.setMinNeighborsInRadius (4);//2
+        std::cout << "keypoints_src_visualize_temp after StatisticalOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
+        outrem.setInputCloud(keypoints_xyzrgb);
+        outrem.filter (*keypoints_xyzrgb);
+        std::cout << "keypoints_src_visualize_temp after RadiusOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
+    }
+
+    queue<KeypointCluster> Keypoint_Cluster_Queue;
+    Keypoint_Cluster_Queue = dbscan_classification(octree_resolution, eps, minPtsAux, minPts, keypoints_xyzrgb, show);
+
+    std::cout << "-----back in main-----" << std::endl;
+    std::cout << "Size of queue = " << Keypoint_Cluster_Queue.size() << endl;
+    /*
+    if(1){
+        int tmp_size=Keypoint_Cluster_Queue.size();
+        for(int counter=0;counter<tmp_size;counter++){
+            KeypointCluster tmp_cluster = Keypoint_Cluster_Queue.front();
+            // ESTIMATING PFH FEATURE DESCRIPTORS AT KEYPOINTS AFTER COMPUTING NORMALS
+            pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
+            compute_normals(src, src_normals);
+            // PFHRGB Estimation
+            pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb(new pcl::PointCloud<pcl::PFHRGBSignature250>);
+
+            tmp_cluster.fpfhs_rgb_prt =&tmp_cluster.fpfhs_rgb;
+
+            //compute_PFHRGB_features(src, src_normals, keypoints_src, fpfhs_src_rgb);
+            compute_PFHRGB_features(src, src_normals, keypoints_src, Cluster1.fpfhs_rgb_prt);
+            cout << "End of compute_FPFH_RGB_features! " << endl;
+
+
+            //first to last of queue
+            Keypoint_Cluster_Queue.pop();
+            Keypoint_Cluster_Queue.push(tmp_cluster);
+        }
+    }
+     */
+    if(show){
+        visualize_clusters(Keypoint_Cluster_Queue, src);
+    }
+    return Keypoint_Cluster_Queue;
+}
 
 pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set, int num, bool jet_flag, double jet_stacking_threshold, float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast, int show, int octree_resolution, int minPtsAux, int minPts, float eps){
     int vp1_;
@@ -470,7 +545,10 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set
         //pcl::compute_featuresPointCloud<pcl::PointXYZ>::Ptr keypoints_src_visualize_temp(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::PointCloud<pcl::PointXYZ>::Ptr keypoints_src_visualize_temp(new pcl::PointCloud<pcl::PointXYZ>);
 
-        compute_features( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast,show,octree_resolution, minPtsAux, minPts,eps);
+        //compute_features( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast,show,octree_resolution, minPtsAux, minPts,eps);
+        submap.submap_Keypoint_Cluster_Queue=get_cluster_descriptors( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast,show,octree_resolution, minPtsAux, minPts,eps);
+
+
         std::cout << "Num of keypoints: " << keypoints_src_visualize_temp->size() << std::endl;
         viewer->addPointCloud<pcl::PointXYZ>(keypoints_src_visualize_temp, "keypoints_src_corresp_viewer"+ std::to_string(i));
         viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "keypoints_src_corresp_viewer"+ std::to_string(i));
@@ -502,7 +580,12 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set
         */
         i++;
     }
-
+    int counter=1;
+    for(SubmapObj& submap: submaps_set){
+        std::cout << "Submap  " << counter << " contains " << submap.submap_Keypoint_Cluster_Queue.size() << " clusters of keypoints" << std::endl;
+        std::cout << "Submap  " << counter << " contains " << submap.submap_pcl_.size() << " points" << std::endl;
+        counter++;
+    }
 
     viewer->setBackgroundColor (0, 0, 0, vp1_);
     return (viewer);

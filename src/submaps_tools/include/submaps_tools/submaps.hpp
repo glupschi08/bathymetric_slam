@@ -27,6 +27,12 @@
 #include <data_tools/navi_data.h>
 #include <data_tools/transforms.h>
 
+
+//test class of queue of classes (descriptors)
+#include "submaps_tools/keypointcluster.h"
+#include <queue>
+
+
 using namespace std;
 using namespace Eigen;
 typedef std::vector<Eigen::MatrixXd, Eigen::aligned_allocator<Eigen::MatrixXd>> PointsT;
@@ -50,6 +56,9 @@ public:
     Eigen::Matrix<double,6,6> submap_info_;
     Eigen::Matrix<double,6,6> submap_lc_info_;
     Eigen::MatrixXd auv_tracks_;
+
+    //storing the desriptors found in the submap
+    queue<KeypointCluster> submap_Keypoint_Cluster_Queue;
 
     SubmapObj();
 

@@ -40,6 +40,9 @@
 #include <queue>
 #include <pcl/kdtree/kdtree_flann.h>
 
+// feature descriptor
+#include <pcl/features/pfhrgb.h>
+
 /*
 #include <queue>
 //#include "keypointcluster.h"
@@ -67,7 +70,8 @@ typedef pcl::PCA<pcl::PointXYZRGB> PCA;
 typedef pcl::PointXYZRGB PointRGBT;
 typedef std::vector<Vector3d, aligned_allocator<Vector3d>> corners;
 typedef std::vector<Eigen::Matrix2d, Eigen::aligned_allocator<Eigen::Matrix2d> > covs;
-
+typedef pcl::PointCloud<pcl::PFHRGBSignature250> PFHRGBSig250;
+typedef pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr PFHRGBSig250Ptr;
 
 
 
@@ -83,7 +87,8 @@ public:
     Eigen::Vector3f Eigenvalues;
     PointCloudRGBT key_cloud;
     //add cloud density as parameter
-
+    PFHRGBSig250 fpfhs_rgb;
+    PFHRGBSig250Ptr fpfhs_rgb_prt;
     float minX;
     float minY;
     float minZ;
