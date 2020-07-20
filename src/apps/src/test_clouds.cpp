@@ -60,6 +60,20 @@
 #include <pcl/filters/radius_outlier_removal.h>
 #include <fstream> //write to file
 
+
+//include for cluster descriptor and dbscan
+#include "submaps_tools/OctreeGenerator.h"
+#include <math.h>
+#include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/radius_outlier_removal.h>
+#include "pcl/point_types.h"
+#include "pcl/point_cloud.h"
+#include <pcl/common/common.h>
+#include <queue>
+#include "submaps_tools/dbScan.h"
+#include "submaps_tools/keypointcluster.h"
+
+
 #define SUBMAPS 0
 #define FULLMAP 1
 
@@ -80,6 +94,9 @@
 #define nr_scales_per_octave 5
 #define min_contrast 0.25
  */
+
+
+
 
 using namespace Eigen;
 using namespace std;
@@ -322,7 +339,7 @@ void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src,
                                     pcl::PointCloud<pcl::PointXYZ>::Ptr & keypoints_tgt_visualize_temp,
                                     pcl::Correspondences & good_correspondences,
                                     std::string keypoints_meth) {*/
-void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointCloud<pcl::PointXYZ>::Ptr & keypoints_src_visualize_temp,float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast){
+void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointCloud<pcl::PointXYZ>::Ptr & keypoints_src_visualize_temp,float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast, int show, int octree_resolution, int minPtsAux, int minPts, float eps){
 
     // ESTIMATING KEY POINTS
     pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints_src(new pcl::PointCloud<pcl::PointWithScale>);
@@ -331,6 +348,7 @@ void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointClo
     //detect_keypoints(src, keypoints_src);
     detect_keypoints(src, keypoints_src,min_scale,nr_octaves,nr_scales_per_octave,min_contrast);
     cout << "No of SIFT points in the src are " << keypoints_src->points.size() << endl;
+    cout << "test 1"  << endl;
 /*
     // ESTIMATING PFH FEATURE DESCRIPTORS AT KEYPOINTS AFTER COMPUTING NORMALS
     pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
@@ -360,14 +378,46 @@ void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointClo
     pcl::registration::TransformationEstimationSVD<pcl::PointXYZ, pcl::PointXYZ> trans_est;
     trans_est.estimateRigidTransformation(*keypoints_src_visualize_temp, *keypoints_tgt_visualize_temp, good_correspondences, transform);
     */
-    if(1 ) {
+    if(0 ) {
         pcl::PCDWriter writer;
         pcl::io::savePCDFile("keypoints__visualize_temp.pcd", *keypoints_src_visualize_temp, true);
+        pcl::io::savePCDFile("src_cloud.pcd", *src, true);
     }
+
+    //-------------------------------------------------------------------------------------------
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr keypoints_xyzrgb(new pcl::PointCloud <pcl::PointXYZRGB>);
+    pcl::copyPointCloud(*keypoints_src, *keypoints_xyzrgb);
+
+
+    //new implementaion part
+    //do some filtering on the cloud to remove outliers
+    if(1){
+        // Create the filtering object for RadiusOutlierRemoval
+        pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> outrem;
+        //std::cerr << "setRadiusSearch: " <<test_double1<< std::endl;
+        //std::cerr << "setMinNeighborsInRadius: " <<test_double2<< std::endl;
+        outrem.setRadiusSearch(5.);//good 5 and r = 3//0.8
+        outrem.setMinNeighborsInRadius (4);//2
+        std::cout << "keypoints_src_visualize_temp after StatisticalOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
+        outrem.setInputCloud(keypoints_xyzrgb);
+        outrem.filter (*keypoints_xyzrgb);
+        std::cout << "keypoints_src_visualize_temp after RadiusOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
+    }
+
+    queue<KeypointCluster> Keypoint_Cluster_Queue;
+    Keypoint_Cluster_Queue = dbscan_classification(octree_resolution, eps, minPtsAux, minPts, keypoints_xyzrgb, show);
+
+    std::cout << "-----back in main-----" << std::endl;
+    std::cout << "Size of queue = " << Keypoint_Cluster_Queue.size() << endl;
+    if(show){
+        visualize_clusters(Keypoint_Cluster_Queue, src);
+        //visualize_clusters(Keypoint_Cluster_Queue, keypoints_xyzrgb);
+    }
+
 
     }
 
-pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set, int num, bool jet_flag, double jet_stacking_threshold, float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast){
+pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set, int num, bool jet_flag, double jet_stacking_threshold, float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast, int show, int octree_resolution, int minPtsAux, int minPts, float eps){
     int vp1_;
 
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
@@ -420,7 +470,7 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set
         //pcl::compute_featuresPointCloud<pcl::PointXYZ>::Ptr keypoints_src_visualize_temp(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::PointCloud<pcl::PointXYZ>::Ptr keypoints_src_visualize_temp(new pcl::PointCloud<pcl::PointXYZ>);
 
-        compute_features( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast);
+        compute_features( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast,show,octree_resolution, minPtsAux, minPts,eps);
         std::cout << "Num of keypoints: " << keypoints_src_visualize_temp->size() << std::endl;
         viewer->addPointCloud<pcl::PointXYZ>(keypoints_src_visualize_temp, "keypoints_src_corresp_viewer"+ std::to_string(i));
         viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "keypoints_src_corresp_viewer"+ std::to_string(i));
@@ -468,6 +518,10 @@ int main(int argc, char** argv){
     // Inputs
     std::string folder_str, path_str, output_str, simulation;
     int submap_num=1;
+    //for dbscan
+    int show, octree_resolution, minPtsAux, minPts;
+    float eps;
+
     float test_float=0;
     double test_double1=0, test_double2=0, test_double3=0,test_double4=0;
     float min_scale=0.3, min_contrast=0.25;
@@ -480,12 +534,18 @@ int main(int argc, char** argv){
         ("simulation", "Simulation data from Gazebo", cxxopts::value(simulation))
         ("bathy_survey", "Input MBES pings in cereal file if simulation = no. If in simulation"
                           "input path to map_small folder", cxxopts::value(path_str))
-        ("s,submap_num","Number of submaps fromed from the input data", cxxopts::value<int>(submap_num))
+        ("n,submap_num","Number of submaps fromed from the input data", cxxopts::value<int>(submap_num))
+        ("s,show", "show visualization", cxxopts::value<int>(show)->default_value("0"))
         ("test_float", "An test float", cxxopts::value<float>(test_float))
         ("t_d1", "An test double", cxxopts::value<double>(test_double1))
         ("t_d2", "An test double", cxxopts::value<double>(test_double2))
         ("t_d3", "An test double", cxxopts::value<double>(test_double3))
         ("t_d4", "An test double", cxxopts::value<double>(test_double4))
+
+        ("octree_resolution", "Param foo", cxxopts::value<int>(octree_resolution)->default_value("100"))
+        ("eps", "Param foo", cxxopts::value<float>(eps)->default_value("5.0"))
+        ("minPtsAux", "Param foo", cxxopts::value<int>(minPtsAux)->default_value("6"))
+        ("minPts", "Param foo", cxxopts::value<int>(minPts)->default_value("2"))
 
         ("min_scale", "An test double", cxxopts::value<float>(min_scale))
         ("nr_octaves", "An test double", cxxopts::value<int>(nr_octaves))
@@ -605,7 +665,7 @@ int main(int argc, char** argv){
     if(do_keypoints){
         //if(do_keypoints){
             std::cout << "do keypoints is on";
-            viewer = rgbVis_keypoints(submaps_gt, 1,jet_flag, jet_stacking_threshold, min_scale,nr_octaves, nr_scales_per_octave,min_contrast);
+            viewer = rgbVis_keypoints(submaps_gt, 1,jet_flag, jet_stacking_threshold, min_scale,nr_octaves, nr_scales_per_octave,min_contrast, show,octree_resolution, minPtsAux, minPts,eps);
     }else{
         viewer = rgbVis(submaps_gt, 1, jet_flag, jet_stacking_threshold);
     }

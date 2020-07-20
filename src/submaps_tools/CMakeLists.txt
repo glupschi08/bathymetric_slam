@@ -6,6 +6,10 @@ include_directories(include)
 
 add_library(submaps_tools
 	src/submaps.cpp
+	src/cluster.cpp
+	src/dbScan.cpp
+	src/keypointcluster.cpp
+	src/OctreeGenerator.cpp
 )
 
 # Define headers for this library. PUBLIC headers are used for
