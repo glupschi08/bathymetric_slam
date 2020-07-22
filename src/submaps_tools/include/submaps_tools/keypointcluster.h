@@ -43,6 +43,16 @@
 // feature descriptor
 #include <pcl/features/pfhrgb.h>
 
+//correspondence matching and rejection
+#include <pcl/registration/correspondence_estimation.h>
+#include <pcl/registration/correspondence_rejection_sample_consensus.h>
+#include <pcl/registration/correspondence_rejection_distance.h>
+#include <pcl/registration/transformation_estimation_svd.h>
+
+//  for compute_PFHRGB_features
+#include <pcl/features/pfhrgb.h>
+
+
 /*
 #include <queue>
 //#include "keypointcluster.h"
@@ -72,6 +82,11 @@ typedef std::vector<Vector3d, aligned_allocator<Vector3d>> corners;
 typedef std::vector<Eigen::Matrix2d, Eigen::aligned_allocator<Eigen::Matrix2d> > covs;
 typedef pcl::PointCloud<pcl::PFHRGBSignature250> PFHRGBSig250;
 typedef pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr PFHRGBSig250Ptr;
+//typedef pcl::PointXYZ PointCloudScale;
+typedef pcl::PointCloud<pcl::PointWithScale> PointCloudScale;
+typedef pcl::PointCloud<pcl::PointWithScale>::Ptr PointCloudScalePtr;
+
+
 
 
 
@@ -87,6 +102,9 @@ public:
     Eigen::Vector3f Eigenvalues;
     PointCloudRGBT key_cloud;
     //add cloud density as parameter
+    PointCloudScale Keypoints;
+    PointCloudScalePtr Keypoints_ptr;
+
     PFHRGBSig250 fpfhs_rgb;
     PFHRGBSig250Ptr fpfhs_rgb_prt;
     float minX;
@@ -104,9 +122,15 @@ public:
 
 #endif //DBSCAN_KEYPOINTCLUSTER_H
 void visualize_clusters(queue<KeypointCluster> Keypoint_Cluster_Queue, pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
-
-
-
+/*
+void findCorrespondences_PFHRGB(const pcl::PointCloud<pcl::PFHRGBSignature250>::Ptr &fpfhs_src,
+                                const pcl::PointCloud<pcl::PFHRGBSignature250>::Ptr &fpfhs_tgt,
+                                pcl::Correspondences &all_correspondences);
+void rejectBadCorrespondences(const pcl::CorrespondencesPtr &all_correspondences,
+                              const pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_src,
+                              const pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_tgt,
+                              pcl::Correspondences &remaining_correspondences);
+*/
 //queue<KeypointCluster> dbscan_classification(int octreeResolution, float eps, int minPtsAux, int minPts, pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, int show);
 
 

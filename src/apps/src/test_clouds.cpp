@@ -331,6 +331,8 @@ void visualize_keypoints (const pcl::PointCloud<pcl::PointXYZRGB>::Ptr points, c
 }
 
 
+
+//todo: remove later after this part is currently not in use
 /*
 void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src,
                                     pcl::PointCloud<pcl::PointXYZRGB>::Ptr &tgt,
@@ -416,21 +418,71 @@ void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointClo
 }
 
 
+/*
+void get_correspondence_matching(KeypointCluster Src_Cluster, KeypointCluster Tgt_Cluster,
+                                pcl::Correspondences & good_correspondences){
+    // Find correspondences between keypoints in FPFH space
+    pcl::CorrespondencesPtr all_correspondences_RGB(new pcl::Correspondences);
+    findCorrespondences_PFHRGB(Src_Cluster.fpfhs_rgb_prt, Tgt_Cluster.fpfhs_rgb_prt, *all_correspondences_RGB);
+    cout << "All correspondences size: " << all_correspondences_RGB->size() << endl;
+
+    rejectBadCorrespondences(all_correspondences_RGB, Src_Cluster.key_cloud, Tgt_Cluster.key_cloud, good_correspondences);
+    cout << "End of rejectBadCorrespondences! " << endl;
+    cout << "Good correspondences size: " << good_correspondences.size() << endl;
+
+    pcl::registration::TransformationEstimationSVD<pcl::PointXYZ, pcl::PointXYZ> trans_est;
+    //trans_est.estimateRigidTransformation(*keypoints_src_visualize_temp, *keypoints_tgt_visualize_temp, good_correspondences, transform);
+    trans_est.estimateRigidTransformation(Src_Cluster.key_cloud, Tgt_Cluster.key_cloud, good_correspondences, transform);
+}
+*/
+
+void filter_ground_cloud ( pcl::PointCloud <pcl::PointXYZRGB>::Ptr keypoints_xyzrgb){
+    //do some filtering on the raw import cloud to remove outliers and artifacts
+    //helps to get later less keypoints on artifacts and noise
+
+    // Create the filtering object for RadiusOutlierRemoval
+    pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> outrem;
+    //std::cerr << "setRadiusSearch: " <<test_double1<< std::endl;
+    //std::cerr << "setMinNeighborsInRadius: " <<test_double2<< std::endl;
+    outrem.setRadiusSearch(5.);//good 5 and r = 3//0.8
+    outrem.setMinNeighborsInRadius (4);//2
+    std::cout << "keypoints_src_visualize_temp after StatisticalOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
+    outrem.setInputCloud(keypoints_xyzrgb);
+    outrem.filter (*keypoints_xyzrgb);
+    std::cout << "keypoints_src_visualize_temp after RadiusOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
+}
+void filter_ground_cloud_withScale ( pcl::PointCloud <pcl::PointWithScale>::Ptr keypoints_xyzrgb){
+    //do some filtering on the raw import cloud to remove outliers and artifacts
+    //helps to get later less keypoints on artifacts and noise
+
+    // Create the filtering object for RadiusOutlierRemoval
+    pcl::RadiusOutlierRemoval<pcl::PointWithScale> outrem;
+    //std::cerr << "setRadiusSearch: " <<test_double1<< std::endl;
+    //std::cerr << "setMinNeighborsInRadius: " <<test_double2<< std::endl;
+    outrem.setRadiusSearch(5.);//good 5 and r = 3//0.8
+    outrem.setMinNeighborsInRadius (4);//2
+    std::cout << "PointWithScale after StatisticalOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
+    outrem.setInputCloud(keypoints_xyzrgb);
+    outrem.filter (*keypoints_xyzrgb);
+    std::cout << "PointWithScale after RadiusOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
+}
+
+
+
+
 
 queue<KeypointCluster> get_cluster_descriptors(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointCloud<pcl::PointXYZ>::Ptr & keypoints_src_visualize_temp,float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast, int show, int octree_resolution, int minPtsAux, int minPts, float eps){
 
     // ESTIMATING KEY POINTS
     pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints_src(new pcl::PointCloud<pcl::PointWithScale>);
     cout << "chosen Method is SWIFT" << endl;
-    //detect_keypoints(src, keypoints_src);
     detect_keypoints(src, keypoints_src,min_scale,nr_octaves,nr_scales_per_octave,min_contrast);
     cout << "No of SIFT points in the src are " << keypoints_src->points.size() << endl;
-    cout << "test 1"  << endl;
-
 
     // Copying the pointwithscale to pointxyz so as visualize the cloud
     pcl::copyPointCloud(*keypoints_src, *keypoints_src_visualize_temp);
 
+    //only for sepeating keypoints for testing clustering methods
     if(0 ) {
         pcl::PCDWriter writer;
         pcl::io::savePCDFile("keypoints__visualize_temp.pcd", *keypoints_src_visualize_temp, true);
@@ -441,51 +493,43 @@ queue<KeypointCluster> get_cluster_descriptors(pcl::PointCloud<pcl::PointXYZRGB>
     pcl::PointCloud <pcl::PointXYZRGB>::Ptr keypoints_xyzrgb(new pcl::PointCloud <pcl::PointXYZRGB>);
     pcl::copyPointCloud(*keypoints_src, *keypoints_xyzrgb);
 
-
-    //new implementaion part
     //do some filtering on the cloud to remove outliers
-    if(1){
-        // Create the filtering object for RadiusOutlierRemoval
-        pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> outrem;
-        //std::cerr << "setRadiusSearch: " <<test_double1<< std::endl;
-        //std::cerr << "setMinNeighborsInRadius: " <<test_double2<< std::endl;
-        outrem.setRadiusSearch(5.);//good 5 and r = 3//0.8
-        outrem.setMinNeighborsInRadius (4);//2
-        std::cout << "keypoints_src_visualize_temp after StatisticalOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
-        outrem.setInputCloud(keypoints_xyzrgb);
-        outrem.filter (*keypoints_xyzrgb);
-        std::cout << "keypoints_src_visualize_temp after RadiusOutlierRemoval: " <<keypoints_xyzrgb->size()<< std::endl;
-    }
+    filter_ground_cloud ( keypoints_xyzrgb);
+    filter_ground_cloud_withScale(keypoints_src);
+
 
     queue<KeypointCluster> Keypoint_Cluster_Queue;
     Keypoint_Cluster_Queue = dbscan_classification(octree_resolution, eps, minPtsAux, minPts, keypoints_xyzrgb, show);
 
-    std::cout << "-----back in main-----" << std::endl;
     std::cout << "Size of queue = " << Keypoint_Cluster_Queue.size() << endl;
-    /*
-    if(1){
-        int tmp_size=Keypoint_Cluster_Queue.size();
-        for(int counter=0;counter<tmp_size;counter++){
-            KeypointCluster tmp_cluster = Keypoint_Cluster_Queue.front();
-            // ESTIMATING PFH FEATURE DESCRIPTORS AT KEYPOINTS AFTER COMPUTING NORMALS
-            pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
-            compute_normals(src, src_normals);
-            // PFHRGB Estimation
-            pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb(new pcl::PointCloud<pcl::PFHRGBSignature250>);
 
-            tmp_cluster.fpfhs_rgb_prt =&tmp_cluster.fpfhs_rgb;
+    //generate the PFHRGB_features to the kezpoints
+    int tmp_size=Keypoint_Cluster_Queue.size();
+    for(int counter=0;counter<tmp_size;counter++){
+        KeypointCluster tmp_cluster = Keypoint_Cluster_Queue.front();
 
-            //compute_PFHRGB_features(src, src_normals, keypoints_src, fpfhs_src_rgb);
-            compute_PFHRGB_features(src, src_normals, keypoints_src, Cluster1.fpfhs_rgb_prt);
-            cout << "End of compute_FPFH_RGB_features! " << endl;
+        // ESTIMATING PFH FEATURE DESCRIPTORS AT KEYPOINTS AFTER COMPUTING NORMALS
+        pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
+        compute_normals(src, src_normals);
 
+        // PFHRGB Estimation
+        //spcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb(new pcl::PointCloud<pcl::PFHRGBSignature250>);
+        pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb (&tmp_cluster.fpfhs_rgb);
+        std::cout << "num of points in tmp_cluster :" << tmp_cluster.key_cloud.size() <<endl;
+        //tmp_cluster.fpfhs_rgb_prt = *tmp_cluster.fpfhs_rgb;
+        tmp_cluster.fpfhs_rgb_prt =fpfhs_src_rgb;
 
-            //first to last of queue
-            Keypoint_Cluster_Queue.pop();
-            Keypoint_Cluster_Queue.push(tmp_cluster);
-        }
+        //compute_PFHRGB_features(src, src_normals, keypoints_src, *tmp_cluster.fpfhs_rgb);
+        compute_PFHRGB_features(src, src_normals, keypoints_src, tmp_cluster.fpfhs_rgb_prt);
+
+        std::cout << "End of compute_FPFH_RGB_features! " << endl;
+        std::cout << "End of compute_FPFH_RGB_features! " << tmp_cluster.fpfhs_rgb.size()<<endl;
+
+        //first to last of queue
+        Keypoint_Cluster_Queue.pop();
+        Keypoint_Cluster_Queue.push(tmp_cluster);
     }
-     */
+    //visualize the clusters seperatly if needed
     if(show){
         visualize_clusters(Keypoint_Cluster_Queue, src);
     }
@@ -553,39 +597,16 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set
         viewer->addPointCloud<pcl::PointXYZ>(keypoints_src_visualize_temp, "keypoints_src_corresp_viewer"+ std::to_string(i));
         viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "keypoints_src_corresp_viewer"+ std::to_string(i));
 
-
-        /*
-        //--------------------------------------------
-        detect_keypoints (submap_ptr, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast, keypoints);
-        // Visualize the point cloud and its keypoints
-        //visualize_keypoints (points, keypoints);
-        // Draw each keypoint as a sphere
-        for (size_t i = 0; i < keypoints->size (); ++i)
-        {
-            // Get the point data
-            const pcl::PointWithScale & p = keypoints->points[i];
-
-            // Pick the radius of the sphere *
-            float r = 2 * p.scale;
-            // * Note: the scale is given as the standard deviation of a Gaussian blur, so a
-            //   radius of 2*p.scale is a good illustration of the extent of the keypoint
-
-            // Generate a unique string for each sphere
-            std::stringstream ss ("keypoint");
-            ss << i;
-
-            // Add a sphere at the keypoint
-            viewer->addSphere (p, 8.0, 1.0, 0.0, 0.0, ss.str ());
-        }
-        */
         i++;
     }
     int counter=1;
     for(SubmapObj& submap: submaps_set){
+        //get_correspondence_matching
         std::cout << "Submap  " << counter << " contains " << submap.submap_Keypoint_Cluster_Queue.size() << " clusters of keypoints" << std::endl;
         std::cout << "Submap  " << counter << " contains " << submap.submap_pcl_.size() << " points" << std::endl;
         counter++;
     }
+    std::cout << "submaps_set size  " << submaps_set.size() << std::endl;
 
     viewer->setBackgroundColor (0, 0, 0, vp1_);
     return (viewer);

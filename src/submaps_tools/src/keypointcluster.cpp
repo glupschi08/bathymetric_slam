@@ -9,6 +9,11 @@
 //#include <Eigen/Core>
 //#include <pcl/visualization/pcl_plotter.h>
 
+// IMPORTANT: the radius used here has to be larger than the radius used to estimate the surface normals!!!
+#define feature_radius 5.25//3.25  //0.25
+#define RANSAC_Inlier_Threshold 3.//1.5 //0.1
+#define RANSAC_Iterations 5000
+
 float colors[] = {
         255, 0,   0,   // red 		1
         0,   255, 0,   // green		2
@@ -202,6 +207,38 @@ void visualize_clusters(queue<KeypointCluster> Keypoint_Cluster_Queue, pcl::Poin
     }
     */
 }
+
+/*
+void findCorrespondences_PFHRGB(const pcl::PointCloud<pcl::PFHRGBSignature250>::Ptr &fpfhs_src,
+                                const pcl::PointCloud<pcl::PFHRGBSignature250>::Ptr &fpfhs_tgt,
+                                pcl::Correspondences &all_correspondences) {
+    pcl::registration::CorrespondenceEstimation<pcl::PFHRGBSignature250, pcl::PFHRGBSignature250> est;
+    est.setInputSource(fpfhs_src);
+    est.setInputTarget(fpfhs_tgt);
+    est.determineReciprocalCorrespondences(all_correspondences);
+}
+
+void rejectBadCorrespondences(const pcl::CorrespondencesPtr &all_correspondences,
+                              const pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_src,
+                              const pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_tgt,
+                              pcl::Correspondences &remaining_correspondences){
+    // copy only XYZRGB data of keypoints for use in estimating features
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr keypoints_src_xyzrgb(new pcl::PointCloud <pcl::PointXYZRGB>);
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr keypoints_tgt_xyzrgb(new pcl::PointCloud <pcl::PointXYZRGB>);
+    pcl::copyPointCloud(*keypoints_src, *keypoints_src_xyzrgb);
+    pcl::copyPointCloud(*keypoints_tgt, *keypoints_tgt_xyzrgb);
+
+    // RandomSampleConsensus bad correspondence rejector
+    pcl::registration::CorrespondenceRejectorSampleConsensus <pcl::PointXYZRGB> correspondence_rejector;
+    correspondence_rejector.setInputSource (keypoints_src_xyzrgb);
+    correspondence_rejector.setInputTarget (keypoints_tgt_xyzrgb);
+    correspondence_rejector.setInlierThreshold(RANSAC_Inlier_Threshold);
+    correspondence_rejector.setMaximumIterations(RANSAC_Iterations);
+    correspondence_rejector.setRefineModel(true);//false
+    correspondence_rejector.setInputCorrespondences(all_correspondences);
+    correspondence_rejector.getCorrespondences(remaining_correspondences);
+}
+*/
 
 /*
 queue<KeypointCluster> dbscan_classification(int octreeResolution, float eps, int minPtsAux, int minPts, pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, int show){
