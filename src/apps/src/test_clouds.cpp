@@ -520,7 +520,7 @@ queue<KeypointCluster> get_cluster_descriptors(pcl::PointCloud<pcl::PointXYZRGB>
         tmp_cluster.fpfhs_rgb_prt =fpfhs_src_rgb;
 
         //compute_PFHRGB_features(src, src_normals, keypoints_src, *tmp_cluster.fpfhs_rgb);
-        compute_PFHRGB_features(src, src_normals, keypoints_src, tmp_cluster.fpfhs_rgb_prt);
+        //compute_PFHRGB_features(src, src_normals, keypoints_src, tmp_cluster.fpfhs_rgb_prt);  //todo: problem keypoints_src includes all keypoiint of the submap...not just the once of one cluster
 
         std::cout << "End of compute_FPFH_RGB_features! " << endl;
         std::cout << "End of compute_FPFH_RGB_features! " << tmp_cluster.fpfhs_rgb.size()<<endl;
