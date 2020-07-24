@@ -71,7 +71,10 @@
 #include <pcl/common/common.h>
 #include <queue>
 #include "submaps_tools/dbScan.h"
-#include "submaps_tools/keypointcluster.h"
+
+//optics
+#include "submaps_tools/Optics.hpp"
+#include <pcl/sample_consensus/model_types.h>
 
 
 #define SUBMAPS 0
@@ -408,6 +411,8 @@ void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointClo
 
     queue<KeypointCluster> Keypoint_Cluster_Queue;
     Keypoint_Cluster_Queue = dbscan_classification(octree_resolution, eps, minPtsAux, minPts, keypoints_xyzrgb, show);
+    //Keypoint_Cluster_Queue = optics_classification( opt_min_pts, reachability_threshold,keypoints_src,show);
+
 
     std::cout << "-----back in main-----" << std::endl;
     std::cout << "Size of queue = " << Keypoint_Cluster_Queue.size() << endl;
@@ -470,6 +475,70 @@ void filter_ground_cloud_withScale ( pcl::PointCloud <pcl::PointWithScale>::Ptr 
 
 
 
+queue<KeypointCluster> optics_classification(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, int opt_min_pts, double opt_reachability_threshold,pcl::PointCloud<pcl::PointWithScale>::Ptr & keypoints_src, int show){
+    std::vector<pcl::PointIndicesPtr> clusters;
+    Optics::optics<pcl::PointWithScale>(keypoints_src, opt_min_pts, opt_reachability_threshold, clusters);
+    std::cout << "filteredCloud_scale size:" << clusters.size() << std::endl;
+    queue<KeypointCluster> Keypoint_Cluster_Queue_opt;
+
+    int id = 0;
+    for (const auto& c : clusters) {
+
+        if (c->indices.size() < 10) continue;
+        std::cout << "Cluster " << id << " size is : " << c->indices.size() << std::endl;
+        pcl::PointCloud<pcl::PointWithScale>::Ptr clusterCloud(new pcl::PointCloud<pcl::PointWithScale>);
+        for (const auto& index : c->indices) {
+            clusterCloud->push_back((*keypoints_src)[index]);
+        }
+        std::cout << "clusterCloud size:" << clusterCloud->size() << std::endl;
+        //pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> color(clusterCloud, rgb(t), rgb(t), rgb(t));
+        KeypointCluster tmp_cluster;
+
+        tmp_cluster.set_keycloud(id, *clusterCloud);
+        pcl::PointWithScale minPt, maxPt;
+        //PointT minPt, maxPt;
+
+        pcl::getMinMax3D (*clusterCloud, minPt, maxPt);
+        std::cout << "Max x: " << maxPt.x << std::endl;
+        std::cout << "Max y: " << maxPt.y << std::endl;
+        std::cout << "Max z: " << maxPt.z << std::endl;
+        std::cout << "Min x: " << minPt.x << std::endl;
+        std::cout << "Min y: " << minPt.y << std::endl;
+        std::cout << "Min z: " << minPt.z << std::endl;
+        tmp_cluster.set_minmax(minPt.x, minPt.y, minPt.z,maxPt.x, maxPt.y, maxPt.z);
+
+
+        // ESTIMATING PFH FEATURE DESCRIPTORS AT KEYPOINTS AFTER COMPUTING NORMALS
+        pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
+        compute_normals(src, src_normals);
+        // PFHRGB Estimation
+
+        //pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb(new pcl::PointCloud<pcl::PFHRGBSignature250>);
+        //pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb (&tmp_cluster.fpfhs_rgb);
+        std::cout << "OPTIC_PFHRGB num of points in tmp_cluster :" << tmp_cluster.key_cloud.size() <<endl;
+        //tmp_cluster.fpfhs_rgb_prt = *tmp_cluster.fpfhs_rgb;
+        //todo continue here
+        //tmp_cluster.fpfhs_rgb_prt =fpfhs_src_rgb;
+
+        //compute_PFHRGB_features(src, src_normals, keypoints_src, tmp_cluster.fpfhs_rgb);
+        //compute_PFHRGB_features(src, src_normals, clusterCloud, tmp_cluster.fpfhs_rgb_prt);  //todo: problem keypoints_src includes all keypoiint of the submap...not just the once of one cluster
+
+        std::cout << "End of compute_FPFH_RGB_features! " << endl;
+
+
+    //    Cluster1.set_values(cloud_cluster_pcd->size(),centroit_point,pca.getEigenVectors(),pca.getEigenValues(),minPt.x, minPt.y, minPt.z,maxPt.x, maxPt.y, maxPt.z);
+        //std::cout << "Cluster1 Eigenvalues: " << Cluster1.Eigenvalues << std::endl;
+        //Cluster1.set_values(1,cloud_cluster_pcd->size(),minPt.x, minPt.y, minPt.z,maxPt.x, maxPt.y, maxPt.z);
+      //  std::cout << "Cluster1 Eigenvalues: " << Cluster1.Eigenvalues << std::endl;
+        //Cluster1.set_cloud(cluster_cnt, *cloud_cluster_pcd);
+        Keypoint_Cluster_Queue_opt.push( tmp_cluster );
+        //pcl::io::savePCDFileBinary(str1.c_str(), *cloud_cluster_pcd);
+        //cont += 1;
+    }
+    std::cout << "Size of OPTIC queue = " << Keypoint_Cluster_Queue_opt.size() << endl;
+
+    return Keypoint_Cluster_Queue_opt;
+};
 
 queue<KeypointCluster> get_cluster_descriptors(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointCloud<pcl::PointXYZ>::Ptr & keypoints_src_visualize_temp,float min_scale, int nr_octaves, int nr_scales_per_octave,float min_contrast, int show, int octree_resolution, int minPtsAux, int minPts, float eps){
 
@@ -501,7 +570,13 @@ queue<KeypointCluster> get_cluster_descriptors(pcl::PointCloud<pcl::PointXYZRGB>
     queue<KeypointCluster> Keypoint_Cluster_Queue;
     Keypoint_Cluster_Queue = dbscan_classification(octree_resolution, eps, minPtsAux, minPts, keypoints_xyzrgb, show);
 
+    queue<KeypointCluster> Keypoint_Cluster_Queue_optic;
+    int opt_min_pts=30;
+    double reachability_threshold=30;
+    Keypoint_Cluster_Queue_optic=optics_classification(src, opt_min_pts, reachability_threshold, keypoints_src, show);
     std::cout << "Size of queue = " << Keypoint_Cluster_Queue.size() << endl;
+    std::cout << "Size of Keypoint_Cluster_Queue_optic = " << Keypoint_Cluster_Queue_optic.size() << endl;
+
 
     //generate the PFHRGB_features to the kezpoints
     int tmp_size=Keypoint_Cluster_Queue.size();
@@ -632,6 +707,8 @@ int main(int argc, char** argv){
     int nr_octaves=4, nr_scales_per_octave=5;
     bool do_keypoints=false, jet_flag=false, filter_flag=true;
     double jet_stacking_threshold;
+    int min_pts;
+    double reachability_threshold;
     cxxopts::Options options("MyProgram", "One line description of MyProgram");
     options.add_options()
         ("help", "Print help")
@@ -650,6 +727,10 @@ int main(int argc, char** argv){
         ("eps", "Param foo", cxxopts::value<float>(eps)->default_value("5.0"))
         ("minPtsAux", "Param foo", cxxopts::value<int>(minPtsAux)->default_value("6"))
         ("minPts", "Param foo", cxxopts::value<int>(minPts)->default_value("2"))
+
+        ("opt_min_pts", "optics: min_pts", cxxopts::value<int>(min_pts)->default_value("10"))
+        ("opt_reachability_threshold", "optics: reachability_threshold", cxxopts::value<double>(reachability_threshold)->default_value("0.05"))
+
 
         ("min_scale", "An test double", cxxopts::value<float>(min_scale))
         ("nr_octaves", "An test double", cxxopts::value<int>(nr_octaves))

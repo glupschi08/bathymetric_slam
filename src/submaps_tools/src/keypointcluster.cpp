@@ -42,8 +42,19 @@ float colors[] = {
 void KeypointCluster::set_cloud(int ClusterID_tmp, PointCloudRGBT& key_cloud_tmp){
     key_cloud=key_cloud_tmp;
     ClusterID=ClusterID_tmp;
-};
-
+}
+void KeypointCluster::set_keycloud(int ClusterID_tmp, PointCloudScale Keypoints_tmp){
+    Keypoints=Keypoints_tmp;
+    ClusterID=ClusterID_tmp;
+}
+void KeypointCluster::set_minmax(float a, float b, float c, float d, float e, float f){
+    minX = a;
+    minY = b;
+    minZ = c;
+    maxY = d;
+    maxX = e;
+    maxZ = f;
+}
 
 void KeypointCluster::set_values ( int y_size,PointT Centroid_p,Eigen::Matrix3f e_vecs,Eigen::Vector3f e_vals, float a, float b, float c, float d, float e, float f) {
     Centroid=Centroid_p;

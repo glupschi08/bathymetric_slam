@@ -114,7 +114,9 @@ public:
     float maxY;
     float maxZ;
 
-    void set_cloud(int ClusterID, PointCloudRGBT& key_cloud);
+    void set_cloud(int , PointCloudRGBT& );
+    void set_keycloud(int, PointCloudScale);
+    void set_minmax(float,float,float,float,float,float);
     void set_values(int,PointT,Eigen::Matrix3f, Eigen::Vector3f, float,float,float,float,float,float);
 
 };
