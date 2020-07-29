@@ -100,13 +100,13 @@ public:
     PointT Centroid;
     Eigen::Matrix3f Eigenvectors;
     Eigen::Vector3f Eigenvalues;
-    PointCloudRGBT key_cloud;
+    PointCloudRGBT cloudRGB;
     //add cloud density as parameter
     PointCloudScale Keypoints;
     PointCloudScalePtr Keypoints_ptr;
 
-    PFHRGBSig250 fpfhs_rgb;
-    PFHRGBSig250Ptr fpfhs_rgb_prt;
+    PFHRGBSig250 pfh_rgb;
+    PFHRGBSig250Ptr pfh_rgb_prt;
     float minX;
     float minY;
     float minZ;
@@ -115,7 +115,9 @@ public:
     float maxZ;
 
     void set_cloud(int , PointCloudRGBT& );
-    void set_keycloud(int, PointCloudScale);
+    void set_keycloud(int, PointCloudScale&);
+    void set_feature(PFHRGBSig250);
+    void set_featurePTR(PFHRGBSig250Ptr);
     void set_minmax(float,float,float,float,float,float);
     void set_values(int,PointT,Eigen::Matrix3f, Eigen::Vector3f, float,float,float,float,float,float);
 

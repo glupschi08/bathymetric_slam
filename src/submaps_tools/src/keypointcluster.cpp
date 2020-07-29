@@ -39,13 +39,20 @@ float colors[] = {
 };
 
 
-void KeypointCluster::set_cloud(int ClusterID_tmp, PointCloudRGBT& key_cloud_tmp){
-    key_cloud=key_cloud_tmp;
+void KeypointCluster::set_cloud(int ClusterID_tmp, PointCloudRGBT& cloud_tmp){
+    cloudRGB=cloud_tmp;
     ClusterID=ClusterID_tmp;
 }
-void KeypointCluster::set_keycloud(int ClusterID_tmp, PointCloudScale Keypoints_tmp){
+void KeypointCluster::set_keycloud(int ClusterID_tmp, PointCloudScale& Keypoints_tmp){
     Keypoints=Keypoints_tmp;
     ClusterID=ClusterID_tmp;
+}
+
+void KeypointCluster::set_feature( PFHRGBSig250 pfh_rgb_tmp ){
+    pfh_rgb=pfh_rgb_tmp;
+}
+void KeypointCluster::set_featurePTR( PFHRGBSig250Ptr pfh_rgb_prt_tmp){
+    pfh_rgb_prt=pfh_rgb_prt_tmp;
 }
 void KeypointCluster::set_minmax(float a, float b, float c, float d, float e, float f){
     minX = a;
@@ -144,7 +151,7 @@ void visualize_clusters(queue<KeypointCluster> Keypoint_Cluster_Queue, pcl::Poin
     cout << "after the dequeuing Size of queue = " << Keypoint_Cluster_Queue.size() << endl;
     for (int counter=0;counter < tmp_thresh;counter++){
         KeypointCluster tmp_cluster = Keypoint_Cluster_Queue.front();
-        cout << "Size of cluster = " << tmp_cluster.key_cloud.size() << endl;
+        cout << "Size of cluster = " << tmp_cluster.cloudRGB.size() << endl;
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cluster_rgb(new pcl::PointCloud<pcl::PointXYZRGB>());
         uint8_t r;
         uint8_t g;
@@ -161,11 +168,11 @@ void visualize_clusters(queue<KeypointCluster> Keypoint_Cluster_Queue, pcl::Poin
         }
 
         // Adding different color to each cluster
-        for (std::size_t i = 0; i < tmp_cluster.key_cloud.size (); ++i){
+        for (std::size_t i = 0; i < tmp_cluster.cloudRGB.size (); ++i){
             pcl::PointXYZRGB point;
-            point.x = tmp_cluster.key_cloud[i].x;
-            point.y = tmp_cluster.key_cloud[i].y;
-            point.z = tmp_cluster.key_cloud[i].z;
+            point.x = tmp_cluster.cloudRGB[i].x;
+            point.y = tmp_cluster.cloudRGB[i].y;
+            point.z = tmp_cluster.cloudRGB[i].z;
             uint32_t rgb = (static_cast<uint32_t>(r) << 16 | static_cast<uint32_t>(g) << 8 | static_cast<uint32_t>(b));
             point.rgb = *reinterpret_cast<float *>(&rgb);
             cluster_rgb->points.push_back(point);

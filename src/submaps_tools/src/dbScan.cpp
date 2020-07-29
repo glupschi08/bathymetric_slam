@@ -393,7 +393,7 @@ queue<KeypointCluster> dbscan_classification(int octreeResolution, float eps, in
     std::vector<float> pointsSquaredDist(K);
     // K nearest neighbor search
     kdtree.nearestKSearch(searchPoint, K, pointsIdx, pointsSquaredDist);
-
+/*
     std::cout << "K nearest neighbor search at (" << searchPoint.x << " " << searchPoint.y << " " << searchPoint.z
               << ") with K=" << K << std::endl;
 
@@ -402,7 +402,7 @@ queue<KeypointCluster> dbscan_classification(int octreeResolution, float eps, in
             std::cout << "    " << cloud->points[pointsIdx[i]].x << " " << cloud->points[pointsIdx[i]].y << " "
                       << cloud->points[pointsIdx[i]].z << " (squared distance: " << pointsSquaredDist[i] << ")" << std::endl;
     }
-
+*/
     std::vector<double> doubleVec(pointsSquaredDist.begin(), pointsSquaredDist.end());
     double min_val = *std::min_element(doubleVec.begin(), doubleVec.end());
     double max_val = *std::max_element(doubleVec.begin(), doubleVec.end());
@@ -414,11 +414,12 @@ queue<KeypointCluster> dbscan_classification(int octreeResolution, float eps, in
     }
 
     std::partial_sort(doubleVec_normalized.begin(), doubleVec_normalized.begin() + 2, doubleVec_normalized.end());
-    std::cout << "Sorted squared distances (normalized): \n";
 
+    /*
+    std::cout << "Sorted squared distances (normalized): \n";
     for (auto x : doubleVec_normalized)
         std::cout << x << std::endl;
-
+*/
     std::vector<double> doubleVec_X;
     double cont_x = 0;
 
@@ -490,12 +491,14 @@ queue<KeypointCluster> dbscan_classification(int octreeResolution, float eps, in
 
         pcl::PointXYZRGB minPt, maxPt;
         pcl::getMinMax3D (*cloud_cluster_pcd, minPt, maxPt);
+        /*
         std::cout << "Max x: " << maxPt.x << std::endl;
         std::cout << "Max y: " << maxPt.y << std::endl;
         std::cout << "Max z: " << maxPt.z << std::endl;
         std::cout << "Min x: " << minPt.x << std::endl;
         std::cout << "Min y: " << minPt.y << std::endl;
         std::cout << "Min z: " << minPt.z << std::endl;
+*/
 
         //Source: http://codextechnicanum.blogspot.com/2015/04/find-minimum-oriented-bounding-box-of.html
         // Compute principal directions

@@ -14,6 +14,11 @@
 
 using namespace Eigen;
 
+
+void SubmapObj::saveKeypointCluster(queue<KeypointCluster> submap_Keypoint_Cluster_Queue_tmp){
+    submap_Keypoint_Cluster_Queue=submap_Keypoint_Cluster_Queue_tmp;
+}
+
 MapObj::MapObj(){
 
 }
@@ -93,6 +98,8 @@ void SubmapObj::findOverlaps(std::vector<SubmapObj, Eigen::aligned_allocator<Sub
         }
     }
 }
+
+
 
 
 std::pair<int, corners> getSubmapCorners(const SubmapObj& submap){

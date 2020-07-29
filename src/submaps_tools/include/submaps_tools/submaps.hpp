@@ -59,7 +59,7 @@ public:
 
     //storing the desriptors found in the submap
     queue<KeypointCluster> submap_Keypoint_Cluster_Queue;
-
+    void saveKeypointCluster(queue<KeypointCluster>);
     SubmapObj();
 
     SubmapObj(const unsigned int& submap_id, const unsigned int& swath_id, PointCloudT& submap_pcl);

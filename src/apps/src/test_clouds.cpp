@@ -76,6 +76,21 @@
 #include "submaps_tools/Optics.hpp"
 #include <pcl/sample_consensus/model_types.h>
 
+//correspondences
+
+#include <pcl/registration/icp.h>
+#include <pcl/registration/correspondence_estimation.h>
+#include <pcl/registration/correspondence_estimation_normal_shooting.h>
+#include <pcl/registration/correspondence_estimation_backprojection.h>
+#include <pcl/registration/correspondence_rejection_median_distance.h>
+#include <pcl/registration/correspondence_rejection_surface_normal.h>
+#include <pcl/registration/transformation_estimation_point_to_plane_lls.h>
+#include <pcl/registration/default_convergence_criteria.h>
+#include <pcl/registration/correspondence_rejection_sample_consensus.h>
+#include <pcl/registration/correspondence_rejection_distance.h>
+#define RANSAC_Inlier_Threshold 3.//1.5 //0.1
+#define RANSAC_Iterations 5000
+
 
 #define SUBMAPS 0
 #define FULLMAP 1
@@ -169,8 +184,8 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis (SubmapsVec& submaps_set, int num,
 
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 
-    float black = 0.0;  // Black
-    float white = 1.0 - black;
+    float black = 0.0;
+    //float white = 1.0 - black;
     viewer->createViewPort (0.0, 0.0, 1.0, 1.0, vp1_);
 
     unsigned int i = 0;
@@ -333,6 +348,40 @@ void visualize_keypoints (const pcl::PointCloud<pcl::PointXYZRGB>::Ptr points, c
     viz.spin ();
 }
 
+void findCorrespondences_PFHRGB(const pcl::PointCloud<pcl::PFHRGBSignature250>::Ptr &fpfhs_src,
+                                const pcl::PointCloud<pcl::PFHRGBSignature250>::Ptr &fpfhs_tgt,
+                                pcl::Correspondences &all_correspondences) {
+
+    pcl::registration::CorrespondenceEstimation<pcl::PFHRGBSignature250, pcl::PFHRGBSignature250> est;
+    est.setInputSource(fpfhs_src);
+    est.setInputTarget(fpfhs_tgt);
+    est.determineReciprocalCorrespondences(all_correspondences);
+}
+
+
+
+void rejectBadCorrespondences(const pcl::CorrespondencesPtr &all_correspondences,
+                              const pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_src,
+                              const pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_tgt,
+                              pcl::Correspondences &remaining_correspondences)
+{
+    // copy only XYZRGB data of keypoints for use in estimating features
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr keypoints_src_xyzrgb(new pcl::PointCloud <pcl::PointXYZRGB>);
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr keypoints_tgt_xyzrgb(new pcl::PointCloud <pcl::PointXYZRGB>);
+    pcl::copyPointCloud(*keypoints_src, *keypoints_src_xyzrgb);
+    pcl::copyPointCloud(*keypoints_tgt, *keypoints_tgt_xyzrgb);
+
+
+    // RandomSampleConsensus bad correspondence rejector
+    pcl::registration::CorrespondenceRejectorSampleConsensus <pcl::PointXYZRGB> correspondence_rejector;
+    correspondence_rejector.setInputSource (keypoints_src_xyzrgb);
+    correspondence_rejector.setInputTarget (keypoints_tgt_xyzrgb);
+    correspondence_rejector.setInlierThreshold(RANSAC_Inlier_Threshold);
+    correspondence_rejector.setMaximumIterations(RANSAC_Iterations);
+    correspondence_rejector.setRefineModel(true);//false
+    correspondence_rejector.setInputCorrespondences(all_correspondences);
+    correspondence_rejector.getCorrespondences(remaining_correspondences);
+}
 
 
 //todo: remove later after this part is currently not in use
@@ -416,7 +465,7 @@ void compute_features(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &src, pcl::PointClo
 
     std::cout << "-----back in main-----" << std::endl;
     std::cout << "Size of queue = " << Keypoint_Cluster_Queue.size() << endl;
-    if(show){
+    if(0){
         visualize_clusters(Keypoint_Cluster_Queue, src);
         //visualize_clusters(Keypoint_Cluster_Queue, keypoints_xyzrgb);
     }
@@ -494,36 +543,43 @@ queue<KeypointCluster> optics_classification(pcl::PointCloud<pcl::PointXYZRGB>::
         //pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> color(clusterCloud, rgb(t), rgb(t), rgb(t));
         KeypointCluster tmp_cluster;
 
-        tmp_cluster.set_keycloud(id, *clusterCloud);
+        tmp_cluster.set_keycloud(id,*clusterCloud);        //todo: proplem with calling the cloud later on
         pcl::PointWithScale minPt, maxPt;
-        //PointT minPt, maxPt;
-
         pcl::getMinMax3D (*clusterCloud, minPt, maxPt);
-        std::cout << "Max x: " << maxPt.x << std::endl;
-        std::cout << "Max y: " << maxPt.y << std::endl;
-        std::cout << "Max z: " << maxPt.z << std::endl;
-        std::cout << "Min x: " << minPt.x << std::endl;
-        std::cout << "Min y: " << minPt.y << std::endl;
-        std::cout << "Min z: " << minPt.z << std::endl;
         tmp_cluster.set_minmax(minPt.x, minPt.y, minPt.z,maxPt.x, maxPt.y, maxPt.z);
-
 
         // ESTIMATING PFH FEATURE DESCRIPTORS AT KEYPOINTS AFTER COMPUTING NORMALS
         pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
         compute_normals(src, src_normals);
         // PFHRGB Estimation
 
-        //pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb(new pcl::PointCloud<pcl::PFHRGBSignature250>);
-        //pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb (&tmp_cluster.fpfhs_rgb);
-        std::cout << "OPTIC_PFHRGB num of points in tmp_cluster :" << tmp_cluster.key_cloud.size() <<endl;
-        //tmp_cluster.fpfhs_rgb_prt = *tmp_cluster.fpfhs_rgb;
+        pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb(new pcl::PointCloud<pcl::PFHRGBSignature250>);
+        std::cout << "0:" << endl;
+        //pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb (KeypointCluster::pfh_rgb);
+        //std::cout << "OPTIC_PFHRGB cloudRGB :" << tmp_cluster.cloudRGB.size() <<endl;
+        std::cout << "OPTIC_PFHRGB Keypoints :" << tmp_cluster.Keypoints.size() <<endl;
+
+        //test
+
+        //tmp_cluster.set_featurePTR( tmp_cluster.*pfh_rgb);
+        //pcl::PointCloud<pcl::PointWithScale> KeypointCluster::*ptr=&KeypointCluster::Keypoints;
         //todo continue here
         //tmp_cluster.fpfhs_rgb_prt =fpfhs_src_rgb;
+        //std::cout << "OPTIC_PFHRGB num of points in tmp_cluster :" << tmp_cluster.key_cloud.size() <<endl;
 
-        //compute_PFHRGB_features(src, src_normals, keypoints_src, tmp_cluster.fpfhs_rgb);
-        //compute_PFHRGB_features(src, src_normals, clusterCloud, tmp_cluster.fpfhs_rgb_prt);  //todo: problem keypoints_src includes all keypoiint of the submap...not just the once of one cluster
-
-        std::cout << "End of compute_FPFH_RGB_features! " << endl;
+        //compute_PFHRGB_features(src, src_normals, clusterCloud, fpfhs_src_rgb);     //comp efficient way
+        /* alternativ
+        pcl::PointCloud<pcl::PointWithScale>::Ptr key_tmp(new pcl::PointCloud<pcl::PointWithScale>);
+        pcl::copyPointCloud(tmp_cluster.Keypoints, *key_tmp);
+        compute_PFHRGB_features(src, src_normals, key_tmp, fpfhs_src_rgb);
+         */
+        /*
+        std::cout << "A" <<endl;
+        tmp_cluster.set_feature( *fpfhs_src_rgb );
+        std::cout << "B" <<endl;
+        tmp_cluster.set_featurePTR( fpfhs_src_rgb);
+        std::cout << "C" <<endl;
+*/
 
 
     //    Cluster1.set_values(cloud_cluster_pcd->size(),centroit_point,pca.getEigenVectors(),pca.getEigenValues(),minPt.x, minPt.y, minPt.z,maxPt.x, maxPt.y, maxPt.z);
@@ -536,6 +592,20 @@ queue<KeypointCluster> optics_classification(pcl::PointCloud<pcl::PointXYZRGB>::
         //cont += 1;
     }
     std::cout << "Size of OPTIC queue = " << Keypoint_Cluster_Queue_opt.size() << endl;
+
+    //onlz for checking todo:remove later
+    int tmp_size=Keypoint_Cluster_Queue_opt.size();
+    for(int counter=0;counter<tmp_size;counter++) {
+        KeypointCluster tmp_cluster = Keypoint_Cluster_Queue_opt.front();
+
+        std::cout << "OPTICS_INSIDE cloudRGB :" << tmp_cluster.cloudRGB.size() <<endl;
+        std::cout << "OPTICS_INSIDE Keypoints :" << tmp_cluster.Keypoints.size() <<endl;
+        std::cout << "OPTICS_INSIDE max x :" << tmp_cluster.maxX <<endl;
+        Keypoint_Cluster_Queue_opt.pop();
+        Keypoint_Cluster_Queue_opt.push(tmp_cluster);
+    }
+
+
 
     return Keypoint_Cluster_Queue_opt;
 };
@@ -577,22 +647,23 @@ queue<KeypointCluster> get_cluster_descriptors(pcl::PointCloud<pcl::PointXYZRGB>
     std::cout << "Size of queue = " << Keypoint_Cluster_Queue.size() << endl;
     std::cout << "Size of Keypoint_Cluster_Queue_optic = " << Keypoint_Cluster_Queue_optic.size() << endl;
 
-
+/*
     //generate the PFHRGB_features to the kezpoints
     int tmp_size=Keypoint_Cluster_Queue.size();
     for(int counter=0;counter<tmp_size;counter++){
         KeypointCluster tmp_cluster = Keypoint_Cluster_Queue.front();
 
         // ESTIMATING PFH FEATURE DESCRIPTORS AT KEYPOINTS AFTER COMPUTING NORMALS
-        pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
-        compute_normals(src, src_normals);
+        //pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
+        //compute_normals(src, src_normals);
 
         // PFHRGB Estimation
         //spcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb(new pcl::PointCloud<pcl::PFHRGBSignature250>);
-        pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb (&tmp_cluster.fpfhs_rgb);
-        std::cout << "num of points in tmp_cluster :" << tmp_cluster.key_cloud.size() <<endl;
+        //pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb (&tmp_cluster.fpfhs_rgb);
+        std::cout << "DBSCAN_DESCRIPTO cloudRGB :" << tmp_cluster.cloudRGB.size() <<endl;
+        std::cout << "DBSCAN_DESCRIPTO_PFHRGB Keypoints :" << tmp_cluster.Keypoints.size() <<endl;
         //tmp_cluster.fpfhs_rgb_prt = *tmp_cluster.fpfhs_rgb;
-        tmp_cluster.fpfhs_rgb_prt =fpfhs_src_rgb;
+        //tmp_cluster.fpfhs_rgb_prt =fpfhs_src_rgb;
 
         //compute_PFHRGB_features(src, src_normals, keypoints_src, *tmp_cluster.fpfhs_rgb);
         //compute_PFHRGB_features(src, src_normals, keypoints_src, tmp_cluster.fpfhs_rgb_prt);  //todo: problem keypoints_src includes all keypoiint of the submap...not just the once of one cluster
@@ -603,6 +674,44 @@ queue<KeypointCluster> get_cluster_descriptors(pcl::PointCloud<pcl::PointXYZRGB>
         //first to last of queue
         Keypoint_Cluster_Queue.pop();
         Keypoint_Cluster_Queue.push(tmp_cluster);
+    }
+*/
+
+    //generate the PFHRGB_features to the kezpoints
+    int tmp_size=Keypoint_Cluster_Queue_optic.size();
+    for(int counter=0;counter<tmp_size;counter++){
+        KeypointCluster tmp_cluster = Keypoint_Cluster_Queue_optic.front();
+        std::cout << "start loop :"  <<endl;
+        // ESTIMATING PFH FEATURE DESCRIPTORS AT KEYPOINTS AFTER COMPUTING NORMALS
+        pcl::PointCloud <pcl::Normal>::Ptr src_normals(new pcl::PointCloud<pcl::Normal>);
+        compute_normals(src, src_normals);
+
+        //save the cloud as RGB for viso
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr keypoints_RGB_temp(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::copyPointCloud(tmp_cluster.Keypoints, *keypoints_RGB_temp);
+        tmp_cluster.set_cloud(tmp_cluster.ClusterID, *keypoints_RGB_temp);
+
+        // PFHRGB Estimation
+        pcl::PointCloud <pcl::PFHRGBSignature250>::Ptr fpfhs_src_rgb(new pcl::PointCloud<pcl::PFHRGBSignature250>);
+        std::cout << "OPTICS_DESCRIPTO_ cloudRGB :" << tmp_cluster.cloudRGB.size() <<endl;
+        std::cout << "OPTICS_DESCRIPTO Keypoints :" << tmp_cluster.Keypoints.size() <<endl;
+        std::cout << "OPTICS_DESCRIPTO max x :" << tmp_cluster.maxX <<endl;
+
+        std::cout << "End of compute_FPFH_RGB_features! " << tmp_cluster.pfh_rgb.size()<<endl;
+        pcl::PointCloud<pcl::PointWithScale>::Ptr key_tmp(new pcl::PointCloud<pcl::PointWithScale>);
+        pcl::copyPointCloud(tmp_cluster.Keypoints, *key_tmp);
+        compute_PFHRGB_features(src, src_normals, key_tmp, fpfhs_src_rgb);
+        tmp_cluster.set_feature( *fpfhs_src_rgb );
+        tmp_cluster.set_featurePTR( fpfhs_src_rgb);
+
+        std::cout << "End of compute_FPFH_RGB_features! " << endl;
+        std::cout << "End of compute_FPFH_RGB_features! " << tmp_cluster.pfh_rgb.size()<<endl;
+        //std::cout << "End of compute_FPFH_RGB_featuresPointer! " << tmp_cluster.pfh_rgb_prt.size()<<endl;
+        std::cout << "before pop :"  <<endl;
+        //first to last of queue
+        Keypoint_Cluster_Queue_optic.pop();
+        Keypoint_Cluster_Queue_optic.push(tmp_cluster);
+        std::cout << "end loop :"  <<endl;
     }
     //visualize the clusters seperatly if needed
     if(show){
@@ -616,7 +725,7 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set
 
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
 
-    //float black = 0.0;  // Black
+    //float black = 0.0;
     //float white = 1.0 - black;
     viewer->createViewPort (0.0, 0.0, 1.0, 1.0, vp1_);
 
@@ -665,7 +774,11 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set
         pcl::PointCloud<pcl::PointXYZ>::Ptr keypoints_src_visualize_temp(new pcl::PointCloud<pcl::PointXYZ>);
 
         //compute_features( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast,show,octree_resolution, minPtsAux, minPts,eps);
-        submap.submap_Keypoint_Cluster_Queue=get_cluster_descriptors( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast,show,octree_resolution, minPtsAux, minPts,eps);
+        queue<KeypointCluster> Keypoint_Cluster_Queue;
+        Keypoint_Cluster_Queue=get_cluster_descriptors( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast,show,octree_resolution, minPtsAux, minPts,eps);
+
+        submap.saveKeypointCluster(Keypoint_Cluster_Queue);
+        //submap.submap_Keypoint_Cluster_Queue=get_cluster_descriptors( submap_ptr,  keypoints_src_visualize_temp, min_scale,nr_octaves,nr_scales_per_octave,min_contrast,show,octree_resolution, minPtsAux, minPts,eps);
 
 
         std::cout << "Num of keypoints: " << keypoints_src_visualize_temp->size() << std::endl;
@@ -674,12 +787,42 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis_keypoints (SubmapsVec& submaps_set
 
         i++;
     }
-    int counter=1;
-    for(SubmapObj& submap: submaps_set){
+    int submap_counter_out=1;
+    for(SubmapObj& submap1: submaps_set){
         //get_correspondence_matching
-        std::cout << "Submap  " << counter << " contains " << submap.submap_Keypoint_Cluster_Queue.size() << " clusters of keypoints" << std::endl;
-        std::cout << "Submap  " << counter << " contains " << submap.submap_pcl_.size() << " points" << std::endl;
-        counter++;
+        std::cout << "Submap  " << submap_counter_out << " contains " << submap1.submap_Keypoint_Cluster_Queue.size() << " clusters of keypoints" << std::endl;
+        std::cout << "Submap  " << submap_counter_out << " contains " << submap1.submap_pcl_.size() << " points" << std::endl;
+        int tmp_size1=submap1.submap_Keypoint_Cluster_Queue.size();
+        for(int queue_counter_1=0;queue_counter_1<tmp_size1;queue_counter_1++){
+            KeypointCluster tmp_cluster_1 = submap1.submap_Keypoint_Cluster_Queue.front();
+            //todo chekc why here keypionts and features are zero
+            std::cout << "Submap  " << submap_counter_out << " contains " << submap1.submap_Keypoint_Cluster_Queue.size() << " clusters of keypoints, KeypointCluser " << queue_counter_1 << ": " << tmp_cluster_1.Keypoints.size()  << std::endl;
+            int submap_counter_in=1;
+            for(SubmapObj& submap2: submaps_set) {
+                std::cout << "submap_counter_out  " << submap_counter_out << " submap_counter_in " << submap_counter_in  << std::endl;
+                KeypointCluster tmp_cluster_2 = submap2.submap_Keypoint_Cluster_Queue.front();
+                //test
+                /* //todo:to be continued
+                /* //todo:to be continued
+                // Find correspondences between keypoints in FPFH space
+                pcl::CorrespondencesPtr all_correspondences(new pcl::Correspondences);
+                pcl::CorrespondencesPtr good_correspondences(new pcl::Correspondences);
+                //findCorrespondences_PFHRGB(fpfhs_src_rgb, fpfhs_tgt_rgb, *all_correspondences);
+                findCorrespondences_PFHRGB(*tmp_cluster_1.pfh_rgb, *tmp_cluster_2.pfh_rgb, *all_correspondences);
+                std::cout << "All correspondences size: " << all_correspondences->size() << endl;
+                rejectBadCorrespondences(all_correspondences, *tmp_cluster_1.Keypoints, *tmp_cluster_2.Keypoints, good_correspondences);
+                std::cout << "End of rejectBadCorrespondences! " << endl;
+                std::cout << "Good correspondences size: " << good_correspondences->size() << endl;
+                //test end
+*/
+                submap2.submap_Keypoint_Cluster_Queue.pop();
+                submap2.submap_Keypoint_Cluster_Queue.push(tmp_cluster_2);
+                submap_counter_in++;
+            }
+            submap1.submap_Keypoint_Cluster_Queue.pop();
+            submap1.submap_Keypoint_Cluster_Queue.push(tmp_cluster_1);
+        }
+        submap_counter_out++;
     }
     std::cout << "submaps_set size  " << submaps_set.size() << std::endl;
 
